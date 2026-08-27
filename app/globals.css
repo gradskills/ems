@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+/*
+  BDA Sales Platform — design tokens
+  A calm, professional CRM palette. Indigo primary, slate neutrals,
+  semantic colors for pipeline stages and call dispositions.
+*/
+
+:root {
+  color-scheme: light;
+
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --border: #e3e7ec;
+  --border-strong: #cdd4dd;
+
+  --foreground: #1b2330;
+  --muted: #667085;
+  --muted-2: #98a2b3;
+
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-soft: #eef2ff;
+  --primary-fg: #ffffff;
+
+  --success: #16a34a;
+  --success-soft: #eafbef;
+  --warning: #d97706;
+  --warning-soft: #fef6e7;
+  --danger: #dc2626;
+  --danger-soft: #fdecec;
+  --info: #0891b2;
+  --info-soft: #e7f8fb;
+  --purple: #7c3aed;
+  --purple-soft: #f3ecfe;
+
+  --ring: rgba(79, 70, 229, 0.35);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.12);
+  --radius: 0.75rem;
+}
+
+/*
+  Dark theme. The inline <head> script (see app/layout.tsx) resolves the user's
+  saved preference — including "system" — to an explicit data-theme on <html>
+  before first paint, so only this one dark block is needed. Every surface in the
+  app is already painted from the tokens above, so overriding them here re-themes
+  the whole product. Semantic base colors are kept bright enough to read as text
+  on the dark soft tints AND to carry white text on solid badges.
+*/
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #0b0f17;
+  --surface: #141a24;
+  --surface-2: #1c2431;
+  --border: #273041;
+  --border-strong: #3a4658;
+
+  --foreground: #e7eaf0;
+  --muted: #9aa4b4;
+  --muted-2: #6b7788;
+
+  --primary: #6366f1;
+  --primary-hover: #7c83ff;
+  --primary-soft: #1f2547;
+  --primary-fg: #ffffff;
+
+  --success: #22c55e;
+  --success-soft: #0f2a1c;
+  --warning: #f59e0b;
+  --warning-soft: #2c2110;
+  --danger: #ef4444;
+  --danger-soft: #2e1618;
+  --info: #22b8cf;
+  --info-soft: #0c2731;
+  --purple: #a78bfa;
+  --purple-soft: #241b3d;
+
+  --ring: rgba(99, 102, 241, 0.45);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-fg: var(--primary-fg);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-purple: var(--purple);
+  --color-purple-soft: var(--purple-soft);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --radius-lg: var(--radius);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, unobtrusive scrollbars for the kanban / lists */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid var(--background);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-2);
+}
+
+/* Utility: subtle card lift on hover */
+.lift {
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.lift:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-in {
+  animation: fadeIn 0.2s ease both;
+}
+
+/* Skeleton loading — a soft shimmer sweep over a placeholder block */
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 0.5rem;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 70%, transparent), transparent);
+  animation: skeleton-shimmer 1.5s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--ring);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(79, 70, 229, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
+  }
+}
+.pulse-ring {
+  animation: pulse-ring 1.8s infinite;
+}
