@@ -154,7 +154,7 @@ function CredentialSent({ email }: { email: CredentialEmail }) {
       <div className="rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] p-4 text-sm">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-2)]">Email preview</div>
         <p className="mb-2">Hi {email.name.split(" ")[0]},</p>
-        <p className="mb-2 text-[var(--muted)]">Welcome to PixelForge! Your employee portal account is ready. Use the details below to sign in, then choose your own password.</p>
+        <p className="mb-2 text-[var(--muted)]">Welcome to Gradskills EMS! Your employee portal account is ready. Use the details below to sign in, then choose your own password.</p>
         <p className="text-[var(--muted)]">Login ID: <span className="font-mono font-medium text-[var(--foreground)]">{email.loginId}</span><br />
           Temporary password: <span className="font-mono font-medium text-[var(--foreground)]">{email.tempPassword}</span><br />
           Sign in at: <span className="font-medium text-[var(--primary)]">{email.loginUrl}</span></p>

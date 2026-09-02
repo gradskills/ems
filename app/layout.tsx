@@ -21,14 +21,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PixelForge Sales OS",
-  description: "BDA sales platform — leads, calls, proposals, oversight",
+  title: "Gradskills EMS",
+  description: "Employee management, attendance, quotations & invoices — Gradskills",
   manifest: "/manifest.webmanifest",
-  applicationName: "PixelForge",
+  applicationName: "Gradskills EMS",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "PixelForge",
+    title: "Gradskills EMS",
   },
   icons: {
     icon: "/icon-192.png",

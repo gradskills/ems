@@ -197,8 +197,8 @@ function SidebarContent({
           <Sparkles size={18} />
         </div>
         <div className="leading-tight">
-          <div className="text-sm font-bold">PixelForge</div>
-          <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-2)]">Sales OS · HR</div>
+          <div className="text-sm font-bold">Gradskills</div>
+          <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-2)]">EMS</div>
         </div>
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
@@ -355,7 +355,7 @@ function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
           <Sparkles size={18} />
         </div>
-        <span className="text-sm font-bold">PixelForge</span>
+        <span className="text-sm font-bold">Gradskills EMS</span>
       </div>
       <div className="hidden lg:flex">
         <LensSwitcher />

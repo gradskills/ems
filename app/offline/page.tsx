@@ -1,6 +1,6 @@
 import { WifiOff } from "lucide-react";
 
-export const metadata = { title: "Offline · PixelForge" };
+export const metadata = { title: "Offline · Gradskills EMS" };
 
 export default function OfflinePage() {
   return (
@@ -10,7 +10,7 @@ export default function OfflinePage() {
       </div>
       <h1 className="text-lg font-bold">You're offline</h1>
       <p className="max-w-xs text-sm text-[var(--muted)]">
-        PixelForge can't reach the network right now. Pages you've already opened stay available — reconnect to load new data.
+        Gradskills EMS can't reach the network right now. Pages you've already opened stay available — reconnect to load new data.
       </p>
     </div>
   );

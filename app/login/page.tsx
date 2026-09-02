@@ -59,7 +59,7 @@ export default function LoginPage() {
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--primary)] text-white">
             <Sparkles size={24} />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">PixelForge Portal</h1>
+          <h1 className="text-xl font-bold tracking-tight">Gradskills EMS</h1>
           <p className="text-sm text-[var(--muted)]">Sign in to your workspace</p>
         </div>
 

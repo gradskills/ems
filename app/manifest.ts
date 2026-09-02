@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "PixelForge Sales OS · HR",
-    short_name: "PixelForge",
-    description: "Employee management, attendance, quotations & invoices for PixelForge.",
+    name: "Gradskills EMS",
+    short_name: "Gradskills EMS",
+    description: "Employee management, attendance, quotations & invoices — Gradskills.",
     start_url: "/",
     scope: "/",
     display: "standalone",

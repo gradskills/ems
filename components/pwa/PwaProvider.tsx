@@ -95,7 +95,7 @@ export function PwaProvider() {
           <Sparkles size={18} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Install PixelForge</div>
+          <div className="text-sm font-semibold">Install Gradskills EMS</div>
           {isIOS && !deferred ? (
             <p className="mt-0.5 text-xs text-[var(--muted)]">
               Tap <Share size={12} className="mx-0.5 -mt-0.5 inline" /> Share, then “Add to Home Screen”.

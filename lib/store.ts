@@ -928,7 +928,7 @@ export const useApp = create<AppState>((rawSet, get) => {
         mustChangePassword: true,
       };
       const audit = pushAudit(s, { action: "create", entity: "employee", entityId: id, entityLabel: input.name, after: s.departments.find((d) => d.id === input.departmentId)?.name ?? input.accessLevel });
-      const notify: AppNotification = { id: nid("N"), userId: id, kind: "system", title: "Welcome to PixelForge", body: "Your login was emailed to you. Set a new password on first sign-in.", at: email.sentAt, read: false, href: "/account/password" };
+      const notify: AppNotification = { id: nid("N"), userId: id, kind: "system", title: "Welcome to Gradskills EMS", body: "Your login was emailed to you. Set a new password on first sign-in.", at: email.sentAt, read: false, href: "/account/password" };
       return { employees: [emp, ...s.employees], audit: [audit, ...s.audit], credentialEmails: [email, ...s.credentialEmails], notifications: [notify, ...s.notifications] };
     });
     // Persist to the real users table (the server hashes the temp password),
