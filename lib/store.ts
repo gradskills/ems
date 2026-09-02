@@ -26,7 +26,9 @@ import type {
   Payslip,
   Task,
   TaskStatus,
+  TaskPriority,
   Project,
+  ProjectStatus,
   MediaClient,
   Campaign,
   ContentPost,
@@ -77,6 +79,11 @@ import { briefs as seedBriefs } from "@/lib/seed/briefs";
 import { forms as seedForms, formResponses as seedFormResponses } from "@/lib/seed/forms";
 import { meetings as seedMeetings } from "@/lib/seed/meetings";
 import { proposalTotals } from "@/lib/qims";
+import { hydrateAll } from "@/lib/supabase/hydrate";
+import {
+  persistChanges, setPersistSuspended,
+  persistAttendance, persistLeaveApply, persistLeaveDecision, persistUserUpdate,
+} from "@/lib/supabase/persist";
 
 export type SendChannel = "email" | "whatsapp";
 export interface NewLeadInput {
@@ -118,9 +125,12 @@ interface AppState {
   authUserId: string | null; // the signed-in account; null until login/hydrate
   authReady: boolean; // localStorage has been read on the client
   hydrateAuth: () => void; // restore session from localStorage (client only)
-  login: (loginId: string, password: string) => { ok: boolean; mustChangePassword?: boolean; error?: string };
+  // ── Supabase data hydration ──
+  dataReady: boolean; // true once the store has loaded (or attempted to load) from Supabase
+  hydrateData: () => Promise<void>; // load all slices from Supabase (client only)
+  login: (loginId: string, password: string) => Promise<{ ok: boolean; mustChangePassword?: boolean; error?: string }>;
   logout: () => void;
-  changePassword: (userId: string, current: string, next: string) => { ok: boolean; error?: string };
+  changePassword: (userId: string, current: string, next: string) => Promise<{ ok: boolean; error?: string }>;
   credentialEmails: CredentialEmail[]; // simulated outbox of onboarding emails
 
   // ── data ──
@@ -192,6 +202,13 @@ interface AppState {
   endBreak: () => void;
   breakReminder: (breakId: string) => void;
   createTask: (input: NewTaskInput) => string;
+  addProject: (input: NewProjectInput) => string;
+  updateProject: (id: string, patch: Partial<Project>) => void;
+  createCampaign: (input: NewCampaignInput) => string;
+  updateCampaign: (id: string, patch: Partial<Campaign>) => void;
+  createContent: (input: NewContentInput) => string;
+  updateContent: (id: string, patch: Partial<ContentPost>) => void;
+  moveContent: (id: string, status: ContentPost["status"]) => void;
   moveTask: (id: string, status: TaskStatus) => void;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
@@ -211,6 +228,8 @@ interface AppState {
   rejectProposal: (id: string, reason: string) => void;
   shareProposal: (id: string) => string; // returns share token
   customerDecision: (token: string, decision: "accepted" | "rejected", via: "gmail" | "otp", contact: string, rejectReason?: string) => void;
+  shareAuditReport: (id: string) => string; // returns share token
+  auditDecision: (token: string, decision: "accepted" | "rejected", via: "gmail" | "otp", contact: string, rejectReason?: string) => void;
   rejectAuditReport: (id: string, reason: string) => void;
   updateAuditReport: (id: string, patch: Partial<AuditReport>) => void;
   upsertAuditReport: (leadId: string, patch: Partial<AuditReport>) => string; // create-or-update rich audit for a lead
@@ -308,11 +327,56 @@ export interface NewTaskInput {
   projectId?: string;
   status?: TaskStatus;
 }
+
+export interface NewProjectInput {
+  name: string;
+  description?: string;
+  clientCompany: string;
+  clientContact?: string;
+  clientEmail?: string;
+  leadId?: string;
+  status: ProjectStatus;
+  priority: TaskPriority;
+  departmentId: string;
+  managerId?: string;
+  memberIds: string[];
+  repoUrl?: string;
+  link?: string;
+  dueAt?: string;
+  techStack: string[];
+  progress?: number;
+}
 export interface NewTicketInput {
   subject: string;
   description: string;
   category: string;
   priority: Task["priority"];
+}
+
+export interface NewCampaignInput {
+  clientId: string;
+  name: string;
+  status: Campaign["status"];
+  channel: string;
+  startAt: string;
+  endAt?: string;
+  reach?: number;
+  engagement?: number;
+  spend?: number;
+  leads?: number;
+  checkUrl?: string;
+  liveUrl?: string;
+}
+
+export interface NewContentInput {
+  clientId: string;
+  title: string;
+  channel: string;
+  scheduledAt: string;
+  status: ContentPost["status"];
+  ownerId: string;
+  checkUrl?: string;
+  liveUrl?: string;
 }
 
 function pushAudit(state: AppState, e: Omit<AuditEntry, "id" | "at" | "actorId" | "actorRole">): AuditEntry {
@@ -326,7 +390,23 @@ function pushAudit(state: AppState, e: Omit<AuditEntry, "id" | "at" | "actorId" 
   };
 }
 
-export const useApp = create<AppState>((set, get) => ({
+export const useApp = create<AppState>((rawSet, get) => {
+  // Wrap `set` so every mutation is diffed and written through to Supabase.
+  const set = ((partial: unknown, replace?: boolean) => {
+    const prev = get() as unknown as Record<string, unknown>;
+    (rawSet as (p: unknown, r?: boolean) => void)(partial, replace);
+    persistChanges(prev, get() as unknown as Record<string, unknown>);
+  }) as typeof rawSet;
+
+  // Persist today's attendance record for the acting user (int-keyed table).
+  const persistDay = () => {
+    const s = get();
+    const today = new Date().toISOString().slice(0, 10);
+    const rec = s.attendance.find((a) => a.userId === s.actingUserId && a.date === today);
+    if (rec) void persistAttendance(rec);
+  };
+
+  return {
   actingUserId: CURRENT_BDA_ID,
   role: "bda",
   viewLens: "management",
@@ -354,7 +434,20 @@ export const useApp = create<AppState>((set, get) => ({
   // ── portal session ──
   authUserId: null,
   authReady: false,
+  dataReady: false,
   credentialEmails: [],
+  hydrateData: async () => {
+    setPersistSuspended(true);
+    try {
+      const data = await hydrateAll();
+      if (data) set(data as Partial<AppState>);
+    } catch (e) {
+      console.error("[store] hydrateData failed:", e);
+    } finally {
+      setPersistSuspended(false);
+      set({ dataReady: true });
+    }
+  },
   hydrateAuth: () => {
     const stored = readAuth();
     const u = stored ? get().employees.find((e) => e.id === stored) : undefined;
@@ -362,29 +455,50 @@ export const useApp = create<AppState>((set, get) => ({
     else set({ authReady: true });
     get().hydrateNav();
   },
-  login: (loginId, password) => {
-    const id = loginId.trim().toLowerCase();
-    const u = get().employees.find((e) => (e.loginId ?? loginIdFor(e.email, e.id)) === id || e.email.toLowerCase() === id);
-    if (!u) return { ok: false, error: "No account found for that login ID." };
-    if (u.password !== password) return { ok: false, error: "Incorrect password. Try again." };
-    if (u.status === "inactive") return { ok: false, error: "This account is inactive. Contact your admin." };
-    writeAuth(u.id);
-    set({ authUserId: u.id, authReady: true, actingUserId: u.id, role: u.role, viewLens: u.accessLevel === "employee" ? u.departmentId : "management" });
-    get().hydrateNav();
-    return { ok: true, mustChangePassword: !!u.mustChangePassword };
+  login: async (loginId, password) => {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loginId, password }),
+      });
+      const data = await res.json();
+      if (!data.ok) return { ok: false, error: data.error ?? "Sign in failed." };
+      const u = data.user as User;
+      // make sure the signed-in user is present in the employees slice
+      set((s) => ({
+        employees: s.employees.some((e) => e.id === u.id)
+          ? s.employees.map((e) => (e.id === u.id ? { ...e, ...u } : e))
+          : [u, ...s.employees],
+      }));
+      writeAuth(u.id);
+      set({ authUserId: u.id, authReady: true, actingUserId: u.id, role: u.role, viewLens: u.accessLevel === "employee" ? u.departmentId : "management" });
+      get().hydrateNav();
+      return { ok: true, mustChangePassword: !!data.mustChangePassword };
+    } catch {
+      return { ok: false, error: "Sign in failed. Check your connection and try again." };
+    }
   },
   logout: () => {
     writeAuth(null);
     set({ authUserId: null });
   },
-  changePassword: (userId, current, next) => {
+  changePassword: async (userId, current, next) => {
     const u = get().employees.find((e) => e.id === userId);
     if (!u) return { ok: false, error: "Account not found." };
-    if (u.password !== current) return { ok: false, error: "Current password is incorrect." };
-    if (next.length < 6) return { ok: false, error: "New password must be at least 6 characters." };
-    if (next === current) return { ok: false, error: "New password must be different from the current one." };
-    set((s) => ({ employees: s.employees.map((e) => (e.id === userId ? { ...e, password: next, mustChangePassword: false } : e)) }));
-    return { ok: true };
+    try {
+      const res = await fetch("/api/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, current, next }),
+      });
+      const data = await res.json();
+      if (!data.ok) return { ok: false, error: data.error ?? "Couldn't update password." };
+      set((s) => ({ employees: s.employees.map((e) => (e.id === userId ? { ...e, mustChangePassword: false } : e)) }));
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Couldn't update password. Check your connection." };
+    }
   },
   setActingUser: (userId) => {
     const u = userById(userId);
@@ -667,6 +781,12 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => {
       const lead = s.leads.find((l) => l.id === leadId);
       const maxDiscount = Math.max(0, ...items.map((i) => i.discountPct));
+      // Discount thresholds come from the admin-set approval rules (Settings),
+      // not a hardcoded number, so changing them there takes effect immediately.
+      const bdaMax = s.approvalRules.discountBdaMaxPct;
+      const mgrMax = s.approvalRules.discountManagerMaxPct;
+      const needsApproval = maxDiscount > bdaMax;
+      const approver = maxDiscount > mgrMax ? "admin" : "manager";
       const number = `QT/2025-26/${String(44 + s.proposals.length).padStart(4, "0")}`;
       const proposal: Proposal = {
         id,
@@ -674,12 +794,14 @@ export const useApp = create<AppState>((set, get) => ({
         leadId,
         ownerId: s.actingUserId,
         version: 1,
-        status: maxDiscount > 8 ? "pending_approval" : "draft",
+        status: needsApproval ? "pending_approval" : "draft",
         createdAt: new Date().toISOString(),
         validTill: validTillISO,
         items,
         openCount: 0,
-        approval: maxDiscount > 8 ? { required: true, reason: `Discount ${maxDiscount}% > 8% threshold` } : { required: false },
+        approval: needsApproval
+          ? { required: true, reason: `Discount ${maxDiscount}% exceeds the ${bdaMax}% self-approve limit — needs ${approver} approval` }
+          : { required: false },
       };
       const activity: Activity = {
         id: nid("A"),
@@ -809,6 +931,29 @@ export const useApp = create<AppState>((set, get) => ({
       const notify: AppNotification = { id: nid("N"), userId: id, kind: "system", title: "Welcome to PixelForge", body: "Your login was emailed to you. Set a new password on first sign-in.", at: email.sentAt, read: false, href: "/account/password" };
       return { employees: [emp, ...s.employees], audit: [audit, ...s.audit], credentialEmails: [email, ...s.credentialEmails], notifications: [notify, ...s.notifications] };
     });
+    // Persist to the real users table (the server hashes the temp password),
+    // then swap the temporary id for the DB-assigned numeric id. The write-through
+    // diff cleans up the temp-id credential/notification rows automatically.
+    if (typeof window !== "undefined") {
+      void (async () => {
+        try {
+          const res = await fetch("/api/employees", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...input, loginId, tempPassword: pwd }),
+          });
+          const data = await res.json();
+          if (data?.ok && data.id) {
+            const realId: string = data.id;
+            set((s) => ({
+              employees: s.employees.map((e) => (e.id === id ? { ...e, id: realId, employeeId: data.employeeId } : e)),
+              credentialEmails: s.credentialEmails.map((c) => (c.userId === id ? { ...c, userId: realId } : c)),
+              notifications: s.notifications.map((n) => (n.userId === id ? { ...n, userId: realId } : n)),
+            }));
+          }
+        } catch { /* stays in-memory this session; a reload will load it from the DB */ }
+      })();
+    }
     return { id, loginId, tempPassword: pwd, email };
   },
 
@@ -831,6 +976,8 @@ export const useApp = create<AppState>((set, get) => ({
       }
       const changes = Object.keys(patch).filter((k) => String(prev[(k as keyof User)]) !== String(after[(k as keyof User)])).join(", ") || "details";
       const audit = pushAudit(s, { action: "update", entity: "employee", entityId: id, entityLabel: after.name, after: changes });
+      // persist the updated columns to the (int-keyed) users table
+      void persistUserUpdate(id, after);
       return { employees: s.employees.map((e) => (e.id === id ? after : e)), audit: [audit, ...s.audit] };
     }),
 
@@ -844,27 +991,29 @@ export const useApp = create<AppState>((set, get) => ({
     return id;
   },
 
-  applyLeave: (input) =>
+  applyLeave: (input) => {
+    const lr: LeaveRequest = {
+      id: nid("LV"),
+      userId: get().actingUserId,
+      type: input.type,
+      from: input.from,
+      to: input.to,
+      days: input.days,
+      reason: input.reason,
+      status: "pending",
+      appliedAt: new Date().toISOString(),
+    };
     set((s) => {
-      const lr: LeaveRequest = {
-        id: nid("LV"),
-        userId: s.actingUserId,
-        type: input.type,
-        from: input.from,
-        to: input.to,
-        days: input.days,
-        reason: input.reason,
-        status: "pending",
-        appliedAt: new Date().toISOString(),
-      };
       const me = userById(s.actingUserId);
       const notify = me?.managerId
         ? [{ id: nid("N"), userId: me.managerId, kind: "leave" as const, title: `Leave request from ${me.name}`, body: `${input.days}d ${input.type} leave awaiting approval`, at: lr.appliedAt, read: false, href: "/leaves" }, ...s.notifications]
         : s.notifications;
       return { leaves: [lr, ...s.leaves], notifications: notify };
-    }),
+    });
+    void persistLeaveApply(lr);
+  },
 
-  decideLeave: (id, decision, note) =>
+  decideLeave: (id, decision, note) => {
     set((s) => {
       const lr = s.leaves.find((l) => l.id === id);
       if (!lr) return s;
@@ -875,7 +1024,9 @@ export const useApp = create<AppState>((set, get) => ({
         audit: [audit, ...s.audit],
         notifications: [note2, ...s.notifications],
       };
-    }),
+    });
+    void persistLeaveDecision(id, decision, get().actingUserId, note);
+  },
 
   clockIn: async (opts) => {
     // The selfie modal already gathers a location fix and passes it in. Only fall
@@ -906,10 +1057,11 @@ export const useApp = create<AppState>((set, get) => ({
       const rec: AttendanceRecord = { id: nid("AT"), userId: s.actingUserId, date: today, status, checkIn: now, checkInCoords: coords, checkInTimezone: tz, checkInPhoto: photo };
       return { attendance: [rec, ...s.attendance] };
     });
+    persistDay();
     return true;
   },
 
-  clockOut: () =>
+  clockOut: () => {
     set((s) => {
       const today = new Date().toISOString().slice(0, 10);
       const now = new Date().toISOString();
@@ -922,7 +1074,9 @@ export const useApp = create<AppState>((set, get) => ({
           return a;
         }),
       };
-    }),
+    });
+    persistDay();
+  },
 
   // ── meetings ──
   scheduleMeeting: (input) => {
@@ -1004,7 +1158,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => ({ meetings: s.meetings.map((m) => (m.id === id ? { ...m, status } : m)) })),
 
   // ── break sessions on today's attendance ──
-  startBreak: (type, minutes) =>
+  startBreak: (type, minutes) => {
     set((s) => {
       const today = new Date().toISOString().slice(0, 10);
       const now = new Date().toISOString();
@@ -1013,23 +1167,33 @@ export const useApp = create<AppState>((set, get) => ({
       if (existing) {
         // don't stack breaks — ignore if one is already running
         if ((existing.breaks ?? []).some((b) => !b.endedAt)) return s;
-        return { attendance: s.attendance.map((a) => (a === existing ? { ...a, checkIn: a.checkIn ?? now, status: "present", breaks: [...(a.breaks ?? []), brk] } : a)) };
+        return { attendance: s.attendance.map((a) => (a === existing ? { ...a, checkIn: a.checkIn ?? now, status: "present", onBreak: true, breaks: [...(a.breaks ?? []), brk] } : a)) };
       }
-      const rec: AttendanceRecord = { id: nid("AT"), userId: s.actingUserId, date: today, status: "present", checkIn: now, breaks: [brk] };
+      const rec: AttendanceRecord = { id: nid("AT"), userId: s.actingUserId, date: today, status: "present", checkIn: now, onBreak: true, breaks: [brk] };
       return { attendance: [rec, ...s.attendance] };
-    }),
+    });
+    persistDay();
+  },
 
-  endBreak: () =>
+  endBreak: () => {
     set((s) => {
       const today = new Date().toISOString().slice(0, 10);
       const now = new Date().toISOString();
       return {
         attendance: s.attendance.map((a) => {
           if (a.userId !== s.actingUserId || a.date !== today || !a.breaks) return a;
-          return { ...a, breaks: a.breaks.map((b) => (!b.endedAt ? { ...b, endedAt: now } : b)) };
+          // accumulate the finished break's minutes into the aggregate
+          let added = 0;
+          const breaks = a.breaks.map((b) => {
+            if (!b.endedAt) { added = Math.round((Date.parse(now) - Date.parse(b.startedAt)) / 60000); return { ...b, endedAt: now }; }
+            return b;
+          });
+          return { ...a, breaks, onBreak: false, totalBreakMinutes: (a.totalBreakMinutes ?? 0) + added };
         }),
       };
-    }),
+    });
+    persistDay();
+  },
 
   breakReminder: (breakId) =>
     set((s) => {
@@ -1088,6 +1252,113 @@ export const useApp = create<AppState>((set, get) => ({
     });
     return id;
   },
+
+  addProject: (input) => {
+    const at = new Date().toISOString();
+    const id = `PRJ-${++idc}`;
+    set((s) => {
+      const project: Project = {
+        id,
+        name: input.name,
+        description: input.description ?? "",
+        clientCompany: input.clientCompany,
+        clientContact: input.clientContact,
+        clientEmail: input.clientEmail,
+        leadId: input.leadId,
+        status: input.status,
+        priority: input.priority,
+        departmentId: input.departmentId,
+        managerId: input.managerId,
+        memberIds: input.memberIds,
+        repoUrl: input.repoUrl,
+        link: input.link,
+        startedAt: at,
+        dueAt: input.dueAt,
+        progress: input.progress ?? 0,
+        techStack: input.techStack,
+        commits: [],
+      };
+      const audit = pushAudit(s, { action: "create", entity: "project", entityId: id, entityLabel: input.name, after: userById(input.managerId ?? "")?.name });
+      return { projects: [project, ...s.projects], audit: [audit, ...s.audit] };
+    });
+    return id;
+  },
+
+  updateProject: (id, patch) =>
+    set((s) => {
+      const p = s.projects.find((x) => x.id === id);
+      if (!p) return s;
+      const audit = pushAudit(s, { action: "update", entity: "project", entityId: id, entityLabel: p.name });
+      return { projects: s.projects.map((x) => (x.id === id ? { ...x, ...patch } : x)), audit: [audit, ...s.audit] };
+    }),
+
+  createCampaign: (input) => {
+    const id = `CMP-${++idc}`;
+    set((s) => {
+      const campaign: Campaign = {
+        id,
+        clientId: input.clientId,
+        name: input.name,
+        status: input.status,
+        channel: input.channel,
+        startAt: input.startAt,
+        endAt: input.endAt,
+        reach: input.reach ?? 0,
+        engagement: input.engagement ?? 0,
+        spend: input.spend ?? 0,
+        leads: input.leads ?? 0,
+        checkUrl: input.checkUrl,
+        liveUrl: input.liveUrl,
+      };
+      const audit = pushAudit(s, { action: "create", entity: "campaign", entityId: id, entityLabel: input.name });
+      return { campaigns: [campaign, ...s.campaigns], audit: [audit, ...s.audit] };
+    });
+    return id;
+  },
+
+  updateCampaign: (id, patch) =>
+    set((s) => {
+      const c = s.campaigns.find((x) => x.id === id);
+      if (!c) return s;
+      const audit = pushAudit(s, { action: "update", entity: "campaign", entityId: id, entityLabel: c.name });
+      return { campaigns: s.campaigns.map((x) => (x.id === id ? { ...x, ...patch } : x)), audit: [audit, ...s.audit] };
+    }),
+
+  createContent: (input) => {
+    const id = `CP-${++idc}`;
+    set((s) => {
+      const post: ContentPost = {
+        id,
+        clientId: input.clientId,
+        title: input.title,
+        channel: input.channel,
+        scheduledAt: input.scheduledAt,
+        status: input.status,
+        ownerId: input.ownerId,
+        checkUrl: input.checkUrl,
+        liveUrl: input.liveUrl,
+      };
+      const audit = pushAudit(s, { action: "create", entity: "content", entityId: id, entityLabel: input.title });
+      return { content: [post, ...s.content], audit: [audit, ...s.audit] };
+    });
+    return id;
+  },
+
+  updateContent: (id, patch) =>
+    set((s) => {
+      const p = s.content.find((x) => x.id === id);
+      if (!p) return s;
+      const audit = pushAudit(s, { action: "update", entity: "content", entityId: id, entityLabel: patch.title ?? p.title });
+      return { content: s.content.map((x) => (x.id === id ? { ...x, ...patch } : x)), audit: [audit, ...s.audit] };
+    }),
+
+  moveContent: (id, status) =>
+    set((s) => {
+      const p = s.content.find((x) => x.id === id);
+      if (!p || p.status === status) return s;
+      const audit = pushAudit(s, { action: "update", entity: "content", entityId: id, entityLabel: p.title, field: "status", before: p.status, after: status });
+      return { content: s.content.map((x) => (x.id === id ? { ...x, status } : x)), audit: [audit, ...s.audit] };
+    }),
 
   moveTask: (id, status) =>
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, status } : t)) })),
@@ -1229,6 +1500,36 @@ export const useApp = create<AppState>((set, get) => ({
     }));
     return token;
   },
+
+  shareAuditReport: (id) => {
+    const token = `at_${Math.abs(hashStr(id + Date.now())).toString(36)}`;
+    const now = new Date().toISOString();
+    set((s) => ({
+      auditReports: s.auditReports.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              shareToken: token,
+              status: r.status === "accepted" || r.status === "rejected" ? r.status : "sent",
+              sentAt: r.status === "accepted" || r.status === "rejected" ? r.sentAt : now,
+            }
+          : r
+      ),
+    }));
+    return token;
+  },
+
+  auditDecision: (token, decision, via, contact, rejectReason) =>
+    set((s) => {
+      const r = s.auditReports.find((x) => x.shareToken === token);
+      if (!r) return s;
+      const now = new Date().toISOString();
+      return {
+        auditReports: s.auditReports.map((x) =>
+          x.id === r.id ? { ...x, status: decision, decidedAt: now, customer: { decision, decidedAt: now, via, contact, rejectReason } } : x
+        ),
+      };
+    }),
 
   customerDecision: (token, decision, via, contact, rejectReason) =>
     set((s) => {
@@ -1594,7 +1895,8 @@ export const useApp = create<AppState>((set, get) => ({
       delete next[key];
       return { docDesigns: next };
     }),
-}));
+  };
+});
 
 // build a Lead from a form's mapped answers
 function buildLeadFromResponse(form: FormDef, answers: Record<string, string>, ownerId: string): Lead {

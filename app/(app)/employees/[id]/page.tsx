@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, notFound } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams, notFound } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
@@ -19,8 +19,11 @@ import { EditEmployeeModal } from "@/components/ems/EditEmployeeModal";
 
 type Tab = "overview" | "projects" | "tasks" | "attendance" | "leaves" | "payroll";
 
+const TAB_KEYS: Tab[] = ["overview", "projects", "tasks", "attendance", "leaves", "payroll"];
+
 export default function EmployeeDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const actingUserId = useApp((s) => s.actingUserId);
   const employees = useApp((s) => s.employees);
   const attendance = useApp((s) => s.attendance);
@@ -29,8 +32,29 @@ export default function EmployeeDetailPage() {
   const tasks = useApp((s) => s.tasks);
   const projects = useApp((s) => s.projects);
 
-  const [tab, setTab] = useState<Tab>("overview");
+  // the tab requested by the URL (?tab=attendance), if valid — e.g. deep-link from Attendance
+  const urlTab = ((): Tab | undefined => {
+    const q = searchParams.get("tab") as Tab | null;
+    return q && TAB_KEYS.includes(q) ? q : undefined;
+  })();
+  const [tab, setTab] = useState<Tab>(urlTab ?? "overview");
   const [editOpen, setEditOpen] = useState(false);
+  const [attMonth, setAttMonth] = useState<string>("all"); // "all" or "YYYY-MM"
+
+  // when the URL's ?tab= changes (client nav to a new deep-link), adopt it — the
+  // React-recommended "adjust state during render" pattern, no effect needed.
+  const [seenUrlTab, setSeenUrlTab] = useState(urlTab);
+  if (urlTab && urlTab !== seenUrlTab) {
+    setSeenUrlTab(urlTab);
+    setTab(urlTab);
+  }
+
+  // tick so today's live "working time" stays fresh
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(i);
+  }, []);
 
   const emp = employees.find((u) => u.id === params.id);
   if (!emp) return notFound();
@@ -43,6 +67,27 @@ export default function EmployeeDetailPage() {
 
   const empAtt = attendance.filter((a) => a.userId === emp.id);
   const att = attendanceSummary(empAtt);
+  // months present in this employee's attendance, newest first, for the filter
+  const attMonths = Array.from(new Set(empAtt.map((a) => a.date.slice(0, 7)))).sort().reverse();
+  // records shown in the attendance table — all, or a single selected month
+  const shownAtt = attMonth === "all" ? empAtt : empAtt.filter((a) => a.date.slice(0, 7) === attMonth);
+  // per-month rollup for the selected view (falls back to the 30-day summary for "all")
+  const monthSummary = attMonth === "all" ? att : attendanceSummary(shownAtt);
+
+  // ── worked-time metrics (total across records + today's live working time) ──
+  const today = new Date().toISOString().slice(0, 10);
+  const fmtDur = (mins: number) => `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  const totalWorkedMin = empAtt.reduce((sum, a) => sum + (a.workedMinutes ?? 0), 0);
+  const todayRec = empAtt.find((a) => a.date === today);
+  const netWorked = (rec?: typeof todayRec) => {
+    if (!rec?.checkIn) return 0;
+    const end = rec.checkOut ? Date.parse(rec.checkOut) : now;
+    let ms = end - Date.parse(rec.checkIn);
+    for (const b of rec.breaks ?? []) ms -= Math.max(0, (b.endedAt ? Date.parse(b.endedAt) : now) - Date.parse(b.startedAt));
+    return Math.max(0, Math.round(ms / 60000));
+  };
+  const workingTodayMin = netWorked(todayRec);
+  const isWorkingNow = !!todayRec?.checkIn && !todayRec?.checkOut;
   const empLeaves = leaves.filter((l) => l.userId === emp.id);
   const empPayslips = payslips.filter((p) => p.userId === emp.id);
   const empTasks = tasks.filter((t) => t.assigneeId === emp.id);
@@ -69,7 +114,8 @@ export default function EmployeeDetailPage() {
     downloadCSV(`${slug}-leaves`, [["Type", "From", "To", "Days", "Reason", "Status"], ...empLeaves.map((l) => [leaveTypeLabel[l.type], formatDate(l.from), formatDate(l.to), l.days, l.reason, l.status])]);
   }
   function exportAttendance() {
-    downloadCSV(`${slug}-attendance`, [["Date", "Status", "Check in", "Check out", "Minutes"], ...empAtt.map((a) => [formatDate(a.date), attendanceLabel[a.status], a.checkIn ?? "", a.checkOut ?? "", a.workedMinutes ?? ""])]);
+    const suffix = attMonth === "all" ? "attendance" : `attendance-${attMonth}`;
+    downloadCSV(`${slug}-${suffix}`, [["Date", "Status", "Check in", "Check out", "Minutes"], ...shownAtt.map((a) => [formatDate(a.date), attendanceLabel[a.status], a.checkIn ?? "", a.checkOut ?? "", a.workedMinutes ?? ""])]);
   }
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
@@ -106,7 +152,7 @@ export default function EmployeeDetailPage() {
             </div>
           </div>
           <div className="flex flex-col items-start gap-3 sm:items-end">
-            <Stat label="Attendance" value={`${att.pct}%`} sub="last 30 days" />
+            <Stat label="Attendance" value={`${att.pct}%`} sub="all time" />
             <div className="flex gap-2">
               {canEdit && <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil size={14} /> Edit</Button>}
               <Button variant="outline" size="sm" onClick={exportProfile}><Download size={14} /> Download profile</Button>
@@ -196,25 +242,51 @@ export default function EmployeeDetailPage() {
 
       {tab === "attendance" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Card className="p-4"><Stat label="Present" value={att.present} accent="var(--success)" /></Card>
-            <Card className="p-4"><Stat label="Half days" value={att.half} accent="var(--warning)" /></Card>
-            <Card className="p-4"><Stat label="On leave" value={att.leave} accent="var(--purple)" /></Card>
-            <Card className="p-4"><Stat label="Absent" value={att.absent} accent="var(--danger)" /></Card>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <Card className="p-4"><Stat label={isWorkingNow ? "Working today" : "Worked today"} value={fmtDur(workingTodayMin)} accent={isWorkingNow ? "var(--success)" : undefined} sub={isWorkingNow ? "in progress" : undefined} /></Card>
+            <Card className="p-4"><Stat label="Total worked" value={fmtDur(shownAtt.reduce((s, a) => s + (a.workedMinutes ?? 0), 0))} sub={attMonth === "all" ? "all time" : monthLabel(attMonth)} /></Card>
+            <Card className="p-4"><Stat label="Present" value={monthSummary.present} accent="var(--success)" /></Card>
+            <Card className="p-4"><Stat label="Half days" value={monthSummary.half} accent="var(--warning)" /></Card>
+            <Card className="p-4"><Stat label="On leave" value={monthSummary.leave} accent="var(--purple)" /></Card>
+            <Card className="p-4"><Stat label="Absent" value={monthSummary.absent} accent="var(--danger)" /></Card>
           </div>
-          {empAtt.length > 0 && <div className="flex justify-end"><Button variant="outline" size="sm" onClick={exportAttendance}><Download size={14} /> Export attendance</Button></div>}
+          {/* month filter — view any previous month's attendance */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-[var(--muted)]">Month</span>
+              <select
+                value={attMonth}
+                onChange={(e) => setAttMonth(e.target.value)}
+                className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]"
+              >
+                <option value="all">All months</option>
+                {attMonths.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+              </select>
+              <span className="text-xs text-[var(--muted-2)]">{shownAtt.length} {shownAtt.length === 1 ? "day" : "days"}</span>
+            </label>
+            {shownAtt.length > 0 && <Button variant="outline" size="sm" onClick={exportAttendance}><Download size={14} /> Export attendance</Button>}
+          </div>
           <Card className="overflow-hidden">
-            <TableShell head={<><th className="px-4 py-3">Date</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Check in</th><th className="px-4 py-3">Check out</th><th className="px-4 py-3">Hours</th></>}>
-              {empAtt.slice(0, 20).map((a) => (
-                <tr key={a.id} className="border-b border-[var(--border)] last:border-0">
-                  <td className="px-4 py-3">{formatDate(a.date)}</td>
-                  <td className="px-4 py-3"><Badge color={attendanceColor[a.status]}>{attendanceLabel[a.status]}</Badge></td>
-                  <td className="px-4 py-3 text-xs text-[var(--muted)]">{a.checkIn ? new Date(a.checkIn).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
-                  <td className="px-4 py-3 text-xs text-[var(--muted)]">{a.checkOut ? new Date(a.checkOut).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
-                  <td className="px-4 py-3 text-xs">{a.workedMinutes ? `${Math.floor(a.workedMinutes / 60)}h ${a.workedMinutes % 60}m` : "—"}</td>
-                </tr>
-              ))}
+            {shownAtt.length === 0 ? (
+              <div className="py-12 text-center text-sm text-[var(--muted)]">No attendance recorded for this month.</div>
+            ) : (
+            <TableShell head={<><th className="px-4 py-3">Date</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Check in</th><th className="px-4 py-3">Check out</th><th className="px-4 py-3">Worked</th><th className="px-4 py-3">Breaks</th></>}>
+              {shownAtt.map((a) => {
+                const done = (a.breaks ?? []).filter((b) => b.endedAt);
+                const brkMin = done.reduce((s, b) => s + Math.round((Date.parse(b.endedAt!) - Date.parse(b.startedAt)) / 60000), 0);
+                return (
+                  <tr key={a.id} className="border-b border-[var(--border)] last:border-0">
+                    <td className="px-4 py-3">{formatDate(a.date)}{a.date === today && <span className="ml-1.5 text-[10px] font-semibold uppercase text-[var(--primary)]">Today</span>}</td>
+                    <td className="px-4 py-3"><Badge color={attendanceColor[a.status]}>{attendanceLabel[a.status]}</Badge></td>
+                    <td className="px-4 py-3 text-xs text-[var(--muted)]">{a.checkIn ? new Date(a.checkIn).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
+                    <td className="px-4 py-3 text-xs text-[var(--muted)]">{a.checkOut ? new Date(a.checkOut).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
+                    <td className="px-4 py-3 text-xs">{a.date === today && isWorkingNow ? fmtDur(workingTodayMin) : a.workedMinutes ? `${Math.floor(a.workedMinutes / 60)}h ${a.workedMinutes % 60}m` : "—"}</td>
+                    <td className="px-4 py-3 text-xs text-[var(--muted)]">{done.length ? `${done.length} · ${brkMin}m` : "—"}</td>
+                  </tr>
+                );
+              })}
             </TableShell>
+            )}
           </Card>
         </div>
       )}

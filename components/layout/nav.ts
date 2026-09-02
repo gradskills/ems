@@ -24,7 +24,6 @@ import {
   Settings,
   ClipboardList,
   Compass,
-  Clock,
   CalendarClock,
   LucideIcon,
 } from "lucide-react";
@@ -74,10 +73,10 @@ export const navItems: NavItem[] = [
   { href: "/media", label: "Media Dashboard", icon: LayoutDashboard, group: "work", when: (c) => c.deptKey === "media", mobile: true },
 
   // ── Overview: personal / quick-access (employees & management lens) ──
-  // Everyone below admin clocks in/out; admins don't — they get a live "Who's In"
-  // board (same /clock route, role-aware page) to see who is working today.
-  { href: "/clock", label: "Clock In/Out", icon: Clock, group: "overview", when: (c) => !isAdmin(c), mobile: true },
-  { href: "/clock", label: "Who's In", icon: Clock, group: "overview", when: isAdmin, mobile: true },
+  // "My Dashboard" is the combined personal workspace: clock in/out, breaks,
+  // tasks, leaves, announcements and attendance all live here (the old separate
+  // Clock In/Out page now redirects into it). Admins get a command center at /my
+  // and see who's in today from the Attendance screen instead.
   { href: "/my", label: "My Dashboard", icon: LayoutDashboard, group: "overview", when: selfService, mobile: true },
   { href: "/tasks", label: "My Tasks", icon: CheckSquare, group: "overview", when: selfService, mobile: true },
   { href: "/performance", label: "My Performance", icon: TrendingUp, group: "overview", when: (c) => c.accessLevel === "employee" && c.features.has("leads") },

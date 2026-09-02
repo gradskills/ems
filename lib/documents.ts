@@ -415,16 +415,6 @@ function scoreRingSvg(score: number, size = 120, color = AMBER) {
 function bar(score: number) {
   return `<div style="height:8px;background:#eee;border-radius:99px;width:120px;overflow:hidden"><div style="height:100%;width:${score}%;background:${AMBER}"></div></div>`;
 }
-function pageHead(num: string, label: string, c: CompanySettings) {
-  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:26px">
-    <div style="font-size:13px;color:#999"><b style="color:#111;font-size:15px">${num}</b> &nbsp; ${esc(label)}</div>
-    <div>${logoBlock(c, { size: 26 })}</div>
-  </div>`;
-}
-function pageFoot(c: CompanySettings, num: string) {
-  return `<div style="position:absolute;bottom:12mm;left:16mm;right:16mm;display:flex;justify-content:space-between;font-size:11px;color:#aaa;border-top:1px solid #eee;padding-top:8px">
-    <span>${esc(c.website)}</span><span>${num}</span></div>`;
-}
 
 export function auditReportHtml(r: AuditReport, lead: Lead | undefined, c: CompanySettings, opts: { embed?: boolean } = {}) {
   const overall = r.overallScore ?? r.score;
@@ -433,11 +423,30 @@ export function auditReportHtml(r: AuditReport, lead: Lead | undefined, c: Compa
   const detailed = areas.filter((a) => (a.working?.length || a.issues?.length || a.recommendations?.length));
   const statusColorOf = (s: string) => /good|strong/i.test(s) ? "#16a34a" : /average/i.test(s) ? "#666" : "#d97706";
 
-  const pages: string[] = [];
+  // Content flows section-by-section (no forced full-height pages), so the document
+  // stays compact and reflows as sections are added/removed. Only the cover and the
+  // closing page are full A4 pages. Sections avoid breaking across pages when printed.
+  const css = `
+    .flow{min-height:auto;overflow:visible;box-shadow:${opts.embed ? "none" : "0 6px 24px rgba(0,0,0,.14)"}}
+    .flow .pad{padding:16mm}
+    .sec{padding:22px 0}
+    .sec:first-child{padding-top:2px}
+    .sec + .sec{border-top:1px solid #ededed}
+    .kick{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+    .kick .n{font-size:12.5px;color:#9aa1ab;letter-spacing:.02em}
+    .kick .n b{color:#111;font-size:14px}
+    .h{font-size:24px;font-weight:800;line-height:1.18}
+    .callout{background:#111;color:#fff;border-radius:14px;padding:16px 20px;margin-top:16px}
+    .callout .t{color:${AMBER};font-weight:800;margin-bottom:5px}
+    @media print { .sec{ page-break-inside:avoid; } }
+  `;
+  const kick = (num: string, label: string) => `<div class="kick"><div class="n"><b>${num}</b> &nbsp; ${esc(label)}</div>${logoBlock(c, { size: 22 })}</div>`;
 
-  // Page 1 — cover (dark)
-  pages.push(`<div class="page" style="background:#111;color:#fff">
-    <div class="pad" style="display:flex;flex-direction:column;height:297mm">
+  const parts: string[] = [];
+
+  // Cover — full page (dark)
+  parts.push(`<div class="page" style="background:#111;color:#fff">
+    <div class="pad" style="display:flex;flex-direction:column;min-height:297mm">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">${logoBlock(c, { light: true, size: 40 })}</div>
       <div style="margin-top:60px">
         <div style="font-size:52px;font-weight:800;line-height:1.05">DIGITAL<br><span style="color:${AMBER}">AUDIT</span><br>REPORT</div>
@@ -452,66 +461,66 @@ export function auditReportHtml(r: AuditReport, lead: Lead | undefined, c: Compa
     </div>
   </div>`);
 
-  // Page 2 — executive summary
-  const areaTile = (a: { name: string; score: number; status: string }) => `<div style="border:1px solid #eee;border-radius:14px;padding:16px;text-align:center">
+  // ── flowing content sections ──
+  const areaTile = (a: { name: string; score: number; status: string }) => `<div style="border:1px solid #eee;border-radius:14px;padding:14px;text-align:center">
     <div style="font-weight:700;font-size:13px">${esc(a.name)}</div>
-    <div style="font-size:24px;font-weight:800;margin-top:6px">${a.score}<span style="font-size:12px;color:#999">/100</span></div>
+    <div style="font-size:22px;font-weight:800;margin-top:6px">${a.score}<span style="font-size:12px;color:#999">/100</span></div>
     <div style="font-size:12px;font-weight:700;margin-top:2px;color:${statusColorOf(a.status)}">${esc(a.status)}</div>
   </div>`;
   const topAreas = areas.slice(0, 4);
-  pages.push(`<div class="page"><div class="pad" style="min-height:297mm;position:relative">
-    ${pageHead("01", "EXECUTIVE SUMMARY", c)}
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:30px">
+  const secs: string[] = [];
+
+  // Executive summary
+  secs.push(`<section class="sec">
+    ${kick("01", "EXECUTIVE SUMMARY")}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:28px">
       <div style="flex:1">
-        <div style="font-size:30px;font-weight:800;line-height:1.15">Your Digital Presence<br><span style="color:${AMBER}">At a Glance.</span></div>
-        <p class="muted" style="margin-top:16px;font-size:14px;line-height:1.7;max-width:420px">${esc(r.summary)}</p>
+        <div class="h">Your Digital Presence <span style="color:${AMBER}">At a Glance.</span></div>
+        <p class="muted" style="margin-top:12px;font-size:14px;line-height:1.7;max-width:440px">${esc(r.summary)}</p>
       </div>
-      <div class="center">${scoreRingSvg(overall, 150)}<div class="muted" style="font-size:12px;margin-top:6px">Overall Digital<br>Health Score</div></div>
+      <div class="center" style="flex-shrink:0">${scoreRingSvg(overall, 132)}<div class="muted" style="font-size:12px;margin-top:6px">Overall Digital<br>Health Score</div></div>
     </div>
-    ${topAreas.length ? `<div style="display:grid;grid-template-columns:repeat(${Math.min(4, topAreas.length)},1fr);gap:14px;margin-top:34px">${topAreas.map(areaTile).join("")}</div>` : ""}
-    ${r.takeaway ? `<div style="background:#111;color:#fff;border-radius:14px;padding:20px 24px;margin-top:34px"><div style="color:${AMBER};font-weight:800;margin-bottom:6px">Key Takeaway</div><div style="font-size:14px;line-height:1.6">${esc(r.takeaway)}</div></div>` : ""}
-    ${pageFoot(c, "02")}
-  </div></div>`);
+    ${topAreas.length ? `<div style="display:grid;grid-template-columns:repeat(${Math.min(4, topAreas.length)},1fr);gap:12px;margin-top:20px">${topAreas.map(areaTile).join("")}</div>` : ""}
+    ${r.takeaway ? `<div class="callout"><div class="t">Key Takeaway</div><div style="font-size:14px;line-height:1.6">${esc(r.takeaway)}</div></div>` : ""}
+  </section>`);
 
-  // Page 3 — scorecard
+  // Scorecard
   if (areas.length) {
-    pages.push(`<div class="page"><div class="pad" style="min-height:297mm;position:relative">
-      ${pageHead("02", "PERFORMANCE SCORECARD", c)}
-      <div style="font-size:30px;font-weight:800">How We Scored <span style="color:${AMBER}">Each Area.</span></div>
-      <p class="muted" style="margin-top:10px;font-size:13px">Scores are based on industry standards and best practices.</p>
-      <table style="width:100%;border-collapse:collapse;margin-top:24px;font-size:14px">
-        <thead><tr style="text-align:left;color:#999;border-bottom:1px solid #eee"><th style="padding:12px 8px">Area</th><th></th><th style="padding:12px 8px">Score</th><th style="padding:12px 8px">Status</th></tr></thead>
-        <tbody>${areas.map((a) => `<tr style="border-bottom:1px solid #f2f2f2"><td style="padding:14px 8px;font-weight:600">${esc(a.name)}</td><td>${bar(a.score)}</td><td style="padding:14px 8px">${a.score}/100</td><td style="padding:14px 8px;color:${statusColorOf(a.status)};font-weight:700">${esc(a.status)}</td></tr>`).join("")}</tbody>
+    secs.push(`<section class="sec">
+      ${kick("02", "PERFORMANCE SCORECARD")}
+      <div class="h">How We Scored <span style="color:${AMBER}">Each Area.</span></div>
+      <p class="muted" style="margin-top:8px;font-size:13px">Scores are based on industry standards and best practices.</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px">
+        <thead><tr style="text-align:left;color:#999;border-bottom:1px solid #eee"><th style="padding:10px 8px">Area</th><th></th><th style="padding:10px 8px">Score</th><th style="padding:10px 8px">Status</th></tr></thead>
+        <tbody>${areas.map((a) => `<tr style="border-bottom:1px solid #f2f2f2"><td style="padding:11px 8px;font-weight:600">${esc(a.name)}</td><td>${bar(a.score)}</td><td style="padding:11px 8px">${a.score}/100</td><td style="padding:11px 8px;color:${statusColorOf(a.status)};font-weight:700">${esc(a.status)}</td></tr>`).join("")}</tbody>
       </table>
-      ${pageFoot(c, "03")}
-    </div></div>`);
+    </section>`);
   }
 
-  // Page 4 — key findings overview
+  // Key findings overview
   if (findAreas.length) {
-    pages.push(`<div class="page"><div class="pad" style="min-height:297mm;position:relative">
-      ${pageHead("03", "KEY FINDINGS OVERVIEW", c)}
-      <div style="font-size:30px;font-weight:800">What We Found.<br><span style="color:${AMBER}">At a High Level.</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:26px">
-        ${findAreas.map((a) => `<div style="border:1px solid #eee;border-radius:14px;padding:18px"><div style="font-weight:800;font-size:15px;margin-bottom:6px">${esc(a.name)}</div><div class="muted" style="font-size:12.5px;line-height:1.6">${esc(a.summary)}</div></div>`).join("")}
+    secs.push(`<section class="sec">
+      ${kick("03", "KEY FINDINGS OVERVIEW")}
+      <div class="h">What We Found. <span style="color:${AMBER}">At a High Level.</span></div>
+      <div style="display:grid;grid-template-columns:repeat(${Math.min(3, findAreas.length)},1fr);gap:14px;margin-top:16px">
+        ${findAreas.map((a) => `<div style="border:1px solid #eee;border-radius:14px;padding:16px"><div style="font-weight:800;font-size:15px;margin-bottom:6px">${esc(a.name)}</div><div class="muted" style="font-size:12.5px;line-height:1.6">${esc(a.summary)}</div></div>`).join("")}
       </div>
-      ${r.overallOpportunity ? `<div style="background:#111;color:#fff;border-radius:14px;padding:20px 24px;margin-top:26px"><div style="color:${AMBER};font-weight:800;margin-bottom:6px">Overall Opportunity</div><div style="font-size:14px;line-height:1.6">${esc(r.overallOpportunity)}</div></div>` : ""}
-      ${pageFoot(c, "04")}
-    </div></div>`);
+      ${r.overallOpportunity ? `<div class="callout"><div class="t">Overall Opportunity</div><div style="font-size:14px;line-height:1.6">${esc(r.overallOpportunity)}</div></div>` : ""}
+    </section>`);
   }
 
-  // Pages 5+ — detailed audit per area
+  // Detailed audit — one block per area, stacked
   detailed.forEach((a, i) => {
     const list = (title: string, items: string[] | undefined, sym: string, col: string) =>
-      items && items.length ? `<div style="margin-bottom:22px"><div style="font-weight:800;font-size:15px;margin-bottom:10px">${title}</div>${items.map((x) => `<div style="display:flex;gap:8px;font-size:13px;margin-bottom:7px"><span style="color:${col}">${sym}</span><span>${esc(x)}</span></div>`).join("")}</div>` : "";
-    pages.push(`<div class="page"><div class="pad" style="min-height:297mm;position:relative">
-      ${pageHead("04", "DETAILED AUDIT", c)}
-      <div style="display:grid;grid-template-columns:200px 1fr;gap:30px">
-        <div style="background:#111;color:#fff;border-radius:16px;padding:22px;text-align:center">
-          <div style="font-size:26px;font-weight:800;color:${AMBER};margin:10px 0">${esc(a.name.toUpperCase())}</div>
-          <div style="margin:18px 0">${scoreRingSvg(a.score, 110)}</div>
+      items && items.length ? `<div style="margin-bottom:16px"><div style="font-weight:800;font-size:15px;margin-bottom:8px">${title}</div>${items.map((x) => `<div style="display:flex;gap:8px;font-size:13px;margin-bottom:6px"><span style="color:${col}">${sym}</span><span>${esc(x)}</span></div>`).join("")}</div>` : "";
+    secs.push(`<section class="sec">
+      ${kick(i === 0 ? "04" : "", i === 0 ? "DETAILED AUDIT" : `${esc(a.name.toUpperCase())}`)}
+      <div style="display:grid;grid-template-columns:180px 1fr;gap:24px;align-items:start">
+        <div style="background:#111;color:#fff;border-radius:16px;padding:20px;text-align:center">
+          <div style="font-size:20px;font-weight:800;color:${AMBER};margin:4px 0 12px">${esc(a.name.toUpperCase())}</div>
+          <div style="margin:6px 0">${scoreRingSvg(a.score, 104)}</div>
           <div class="muted" style="color:#aaa;font-size:12px">Score</div>
-          ${a.priority ? `<div style="margin-top:18px"><div class="muted" style="color:#aaa;font-size:12px;margin-bottom:6px">Priority</div><span style="display:inline-block;background:${a.priority === "High" ? "#c0392b" : a.priority === "Medium" ? "#d97706" : "#16a34a"};padding:6px 18px;border-radius:8px;font-weight:700">${esc(a.priority)}</span></div>` : ""}
+          ${a.priority ? `<div style="margin-top:14px"><div class="muted" style="color:#aaa;font-size:12px;margin-bottom:6px">Priority</div><span style="display:inline-block;background:${a.priority === "High" ? "#c0392b" : a.priority === "Medium" ? "#d97706" : "#16a34a"};padding:5px 16px;border-radius:8px;font-weight:700">${esc(a.priority)}</span></div>` : ""}
         </div>
         <div>
           ${list("What's Working", a.working, "✓", "#16a34a")}
@@ -519,35 +528,34 @@ export function auditReportHtml(r: AuditReport, lead: Lead | undefined, c: Compa
           ${list("Recommendations", a.recommendations, "→", AMBER)}
         </div>
       </div>
-      ${pageFoot(c, String(5 + i))}
-    </div></div>`);
+    </section>`);
   });
 
-  // Roadmap page
+  // Roadmap
   if (r.roadmap?.length) {
-    pages.push(`<div class="page"><div class="pad" style="min-height:297mm;position:relative">
-      ${pageHead("05", "90-DAY ROADMAP", c)}
-      <div style="font-size:30px;font-weight:800">Your 90-Day<br><span style="color:${AMBER}">Growth Roadmap.</span></div>
-      <div style="margin-top:26px">${r.roadmap.map((p) => `<div style="border:1px solid #eee;border-radius:14px;padding:18px 22px;margin-bottom:14px"><div style="font-weight:800;font-size:16px">${esc(p.title)} <span class="muted" style="font-weight:600;font-size:13px">(${esc(p.range)})</span></div><ul style="margin:10px 0 0 18px;font-size:13px;line-height:1.9;color:#444">${p.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}</div>
-      ${pageFoot(c, String(5 + detailed.length + 1))}
-    </div></div>`);
+    secs.push(`<section class="sec">
+      ${kick("05", "90-DAY ROADMAP")}
+      <div class="h">Your 90-Day <span style="color:${AMBER}">Growth Roadmap.</span></div>
+      <div style="margin-top:16px">${r.roadmap.map((p) => `<div style="border:1px solid #eee;border-radius:14px;padding:16px 20px;margin-bottom:12px"><div style="font-weight:800;font-size:16px">${esc(p.title)} <span class="muted" style="font-weight:600;font-size:13px">(${esc(p.range)})</span></div><ul style="margin:8px 0 0 18px;font-size:13px;line-height:1.8;color:#444">${p.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}</div>
+    </section>`);
   }
 
-  // Impact page
+  // Impact
   if (r.impact?.length) {
-    pages.push(`<div class="page"><div class="pad" style="min-height:297mm;position:relative">
-      ${pageHead("06", "THE IMPACT", c)}
-      <div style="font-size:30px;font-weight:800">The Opportunity<br><span style="color:${AMBER}">Is Significant.</span></div>
-      <div style="display:grid;grid-template-columns:repeat(${Math.min(4, r.impact.length)},1fr);gap:16px;margin-top:34px">
-        ${r.impact.map((m) => `<div style="border:1px solid #eee;border-radius:14px;padding:22px 14px;text-align:center"><div style="font-size:26px;font-weight:800;color:${AMBER}">${esc(m.value)}</div><div class="muted" style="font-size:12px;margin-top:8px;line-height:1.4">${esc(m.label)}</div></div>`).join("")}
+    secs.push(`<section class="sec">
+      ${kick("06", "THE IMPACT")}
+      <div class="h">The Opportunity <span style="color:${AMBER}">Is Significant.</span></div>
+      <div style="display:grid;grid-template-columns:repeat(${Math.min(4, r.impact.length)},1fr);gap:14px;margin-top:18px">
+        ${r.impact.map((m) => `<div style="border:1px solid #eee;border-radius:14px;padding:18px 14px;text-align:center"><div style="font-size:24px;font-weight:800;color:${AMBER}">${esc(m.value)}</div><div class="muted" style="font-size:12px;margin-top:8px;line-height:1.4">${esc(m.label)}</div></div>`).join("")}
       </div>
-      <div style="background:#111;color:#fff;border-radius:14px;padding:22px 26px;margin-top:40px"><div style="color:${AMBER};font-weight:800">Your growth starts with the right strategy and consistent execution.</div><div style="margin-top:8px">We&apos;re here to make it happen.</div></div>
-      ${pageFoot(c, String(5 + detailed.length + 2))}
-    </div></div>`);
+      <div class="callout"><div class="t">Your growth starts with the right strategy and consistent execution.</div><div style="margin-top:4px">We&apos;re here to make it happen.</div></div>
+    </section>`);
   }
 
-  // Thank-you page (dark)
-  pages.push(`<div class="page" style="background:#111;color:#fff"><div class="pad" style="min-height:297mm;display:flex;flex-direction:column">
+  parts.push(`<div class="page flow"><div class="pad">${secs.join("")}</div></div>`);
+
+  // Thank-you — full page (dark)
+  parts.push(`<div class="page" style="background:#111;color:#fff"><div class="pad" style="min-height:297mm;display:flex;flex-direction:column">
     <div class="right">${logoBlock(c, { light: true, size: 34 })}</div>
     <div style="margin-top:40px"><div style="font-size:48px;font-weight:800">Thank <span style="color:${AMBER}">You.</span></div>
     <p class="muted" style="color:#bbb;margin-top:16px;max-width:420px;font-size:14px;line-height:1.7">We appreciate the opportunity to audit ${esc(r.company)}&apos;s digital presence. With the right strategy and execution, we can achieve outstanding results together.</p></div>
@@ -561,7 +569,7 @@ export function auditReportHtml(r: AuditReport, lead: Lead | undefined, c: Compa
     </div>
   </div></div>`);
 
-  return htmlDoc(`Audit Report — ${r.company}`, "", pages.join(""), opts.embed);
+  return htmlDoc(`Audit Report — ${r.company}`, css, parts.join(""), opts.embed);
 }
 
 // ── message builders ──

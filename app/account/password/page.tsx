@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/lib/store";
 import { homePathFor } from "@/lib/ems";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KeyRound, ShieldCheck, ArrowLeft, Eye, EyeOff, Check } from "lucide-react";
 
+// useSearchParams() must sit inside a Suspense boundary for the static build.
 export default function ChangePasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChangePasswordInner />
+    </Suspense>
+  );
+}
+
+function ChangePasswordInner() {
   const router = useRouter();
   const params = useSearchParams();
   const forced = params.get("forced") === "1";
@@ -34,12 +43,12 @@ export default function ChangePasswordPage() {
     if (authReady && !authUserId) router.replace("/login");
   }, [authReady, authUserId, router]);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     if (next !== confirm) { setError("New password and confirmation don't match."); return; }
     if (!authUserId) return;
-    const res = changePassword(authUserId, current, next);
+    const res = await changePassword(authUserId, current, next);
     if (!res.ok) { setError(res.error ?? "Couldn't update password."); return; }
     setDone(true);
     setTimeout(() => router.replace(homePathFor(employees.find((x) => x.id === authUserId))), 1100);

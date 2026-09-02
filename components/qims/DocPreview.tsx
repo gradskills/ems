@@ -6,14 +6,17 @@ import { printDocument, mailto, whatsapp } from "@/lib/documents";
 import { Download, Mail, MessageCircle } from "lucide-react";
 
 const DOC_W = 794; // A4 width @96dpi
-const MAX_H_VH = 0.78; // preview area = 78% of viewport height
+const MAX_H_VH = 0.78; // fit-mode preview area = 78% of viewport height
 const PAD = 12; // p-3 padding around the page (px)
 
 // Live document preview: renders the ACTUAL send-ready document in an isolated
-// iframe, scaled to fit the panel width and auto-sized to the content height so
-// the preview grows/shrinks as content changes. Toolbar = Download / Email / WhatsApp.
+// iframe. The page is always scaled to fit the panel WIDTH so the whole page is
+// visible (never clipped left/right). In "scrollable" mode (multi-page docs) the
+// panel then scrolls vertically through the pages; in default "fit" mode the
+// scale is further capped so the whole (single) page fits without scrolling.
+// Toolbar = Download / Email / WhatsApp.
 export function DocPreview({
-  docKey, baseHtml, filename, label, message, contact,
+  docKey, baseHtml, filename, label, message, contact, scrollable,
 }: {
   docKey: string;
   baseHtml: string;
@@ -21,32 +24,51 @@ export function DocPreview({
   label: string;
   message: { subject: string; body: string };
   contact: { email?: string; phone?: string };
+  scrollable?: boolean;
 }) {
   const logDocumentSend = useApp((s) => s.logDocumentSend);
   const wrapRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [scale, setScale] = useState(0.9);
-  const [docH, setDocH] = useState(500);
+  const [scale, setScale] = useState(1);
+  const [docH, setDocH] = useState(600);
 
-  // Scale so the WHOLE page fits the panel — constrained by both the available
-  // width and the available height — so it never needs to be scrolled.
-  const fit = useCallback((h: number = docH) => {
-    const w = wrapRef.current?.clientWidth ?? DOC_W;
-    const maxH = window.innerHeight * MAX_H_VH - PAD * 2; // minus vertical padding
-    setScale(Math.min(1, (w - PAD * 2) / DOC_W, maxH / h));
-  }, [docH]);
-  useEffect(() => { const onResize = () => fit(); fit(); window.addEventListener("resize", onResize); return () => window.removeEventListener("resize", onResize); }, [fit]);
+  // Scale to fit the panel width. Fit mode additionally caps by height so the
+  // whole page is visible; scrollable mode fits width only and scrolls vertically.
+  // In scrollable mode we reserve room for the vertical scrollbar — otherwise the
+  // scrollbar steals ~16px after scaling and clips the right edge of the page.
+  const recompute = useCallback((h: number = docH) => {
+    const w = wrapRef.current?.clientWidth ?? 0;
+    if (w < 40) return; // panel not laid out yet — the ResizeObserver will re-fire
+    const scrollbar = scrollable ? 18 : 0;
+    const fitW = Math.max(0.1, Math.min(1, (w - PAD * 2 - scrollbar) / DOC_W));
+    if (scrollable) {
+      setScale(fitW);
+    } else {
+      const maxH = window.innerHeight * MAX_H_VH - PAD * 2;
+      setScale(Math.max(0.1, Math.min(fitW, maxH / h)));
+    }
+  }, [docH, scrollable]);
+
+  // Recompute on any size change of the panel (covers the 0-width → laid-out
+  // transition during hydration, sidebar toggles, and window resizes).
+  useEffect(() => {
+    const node = wrapRef.current;
+    const ro = node && typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => recompute()) : null;
+    if (node && ro) ro.observe(node);
+    const onResize = () => recompute();
+    window.addEventListener("resize", onResize);
+    recompute();
+    return () => { ro?.disconnect(); window.removeEventListener("resize", onResize); };
+  }, [recompute]);
 
   const measure = useCallback(() => {
     const doc = iframeRef.current?.contentDocument;
     if (doc) {
       const h = Math.max(200, doc.documentElement.scrollHeight);
       setDocH(h);
-      fit(h);
+      recompute(h);
     }
-  }, [fit]);
-  // re-measure shortly after content changes (srcDoc reloads fire onLoad too)
-  useEffect(() => { const t = setTimeout(measure, 60); return () => clearTimeout(t); }, [baseHtml, measure]);
+  }, [recompute]);
 
   function download() { printDocument(baseHtml, filename); }
   function send(channel: "email" | "whatsapp") {
@@ -56,20 +78,24 @@ export function DocPreview({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
+    <div className={scrollable ? "flex h-[78vh] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]" : "overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]"}>
       <div className="flex items-center justify-end gap-1 border-b border-[var(--border)] bg-[var(--surface)] p-1.5">
         <ToolBtn onClick={download} icon={<Download size={14} />} label="Download" />
         <ToolBtn onClick={() => send("email")} icon={<Mail size={14} />} label="Email" disabled={!contact.email} />
         <ToolBtn onClick={() => send("whatsapp")} icon={<MessageCircle size={14} />} label="WhatsApp" />
       </div>
-      <div ref={wrapRef} className="flex justify-center overflow-hidden p-3" style={{ maxHeight: `${MAX_H_VH * 100}vh` }}>
-        <div style={{ width: DOC_W * scale, height: docH * scale }}>
+      <div
+        ref={wrapRef}
+        className={scrollable ? "flex-1 overflow-y-scroll overflow-x-hidden p-3" : "flex justify-center overflow-hidden p-3"}
+        style={scrollable ? undefined : { maxHeight: `${MAX_H_VH * 100}vh` }}
+      >
+        <div className="mx-auto" style={{ width: DOC_W * scale, height: docH * scale }}>
           <iframe
             ref={iframeRef}
             title={label}
             srcDoc={baseHtml}
             onLoad={measure}
-            style={{ width: DOC_W, height: docH, border: 0, transform: `scale(${scale})`, transformOrigin: "top left", display: "block", background: "#fff" }}
+            style={{ width: DOC_W, height: docH, border: 0, transform: `scale(${scale})`, transformOrigin: "top left", display: "block", background: "#fff", boxShadow: "var(--shadow-md)" }}
           />
         </div>
       </div>

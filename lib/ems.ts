@@ -84,6 +84,8 @@ export const attendanceLabel: Record<AttendanceStatus, string> = {
   absent: "Absent",
   holiday: "Holiday",
   week_off: "Week off",
+  needs_review: "Needs review",
+  pending_punchout: "Pending punch-out",
 };
 export const attendanceColor: Record<AttendanceStatus, BadgeColor> = {
   present: "success",
@@ -93,6 +95,8 @@ export const attendanceColor: Record<AttendanceStatus, BadgeColor> = {
   absent: "danger",
   holiday: "slate",
   week_off: "slate",
+  needs_review: "warning",
+  pending_punchout: "info",
 };
 
 export function attendanceSummary(records: AttendanceRecord[]) {

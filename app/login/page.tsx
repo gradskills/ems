@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/store";
 import { homePathFor } from "@/lib/ems";
-import { DEMO_PASSWORD } from "@/lib/auth";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { Sparkles, KeyRound, User as UserIcon, Eye, EyeOff, LogIn } from "lucide-react";
 
@@ -33,11 +32,11 @@ export default function LoginPage() {
     }
   }, [authReady, authUserId, employees, router]);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
-    const res = login(loginId, password);
+    const res = await login(loginId, password);
     setBusy(false);
     if (!res.ok) {
       setError(res.error ?? "Sign in failed.");
@@ -50,10 +49,11 @@ export default function LoginPage() {
     }
   }
 
+  // Real accounts (sign in with your work email or login ID + your own password).
   const demoAccounts = [
-    { role: "Admin", id: "rohan" },
-    { role: "Manager", id: "sneha" },
-    { role: "BDA", id: "priya" },
+    { role: "Founder", id: "navandarabhijeet" },
+    { role: "Tech", id: "nizmanvith" },
+    { role: "BD", id: "shuklanidhi1020" },
   ];
 
   return (
@@ -117,20 +117,20 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-4 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] p-3 text-xs">
-          <div className="mb-1.5 font-semibold text-[var(--muted)]">Demo accounts</div>
+          <div className="mb-1.5 font-semibold text-[var(--muted)]">Team login IDs</div>
           <div className="flex flex-wrap gap-1.5">
             {demoAccounts.map((a) => (
               <button
                 key={a.id}
                 type="button"
-                onClick={() => { setLoginId(a.id); setPassword(DEMO_PASSWORD); }}
+                onClick={() => setLoginId(a.id)}
                 className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 font-medium hover:border-[var(--primary)]"
               >
                 {a.role}: {a.id}
               </button>
             ))}
           </div>
-          <div className="mt-2 text-[var(--muted-2)]">Password for all demo accounts: <span className="font-mono font-semibold text-[var(--foreground)]">{DEMO_PASSWORD}</span></div>
+          <div className="mt-2 text-[var(--muted-2)]">Sign in with your work email (or the login ID above) and your own password.</div>
         </div>
       </div>
     </div>

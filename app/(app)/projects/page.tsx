@@ -8,20 +8,38 @@ import { Card, Badge, Avatar, ProgressBar } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
 import { projectStatusColor, projectStatusLabel, priorityColor } from "@/lib/ems";
 import { formatDate } from "@/lib/utils";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Plus } from "lucide-react";
 import type { ProjectStatus } from "@/lib/types";
+import { CreateProjectModal } from "@/components/tech/CreateProjectModal";
 
 export default function ProjectsPage() {
   const projects = useApp((s) => s.projects);
+  const actingUserId = useApp((s) => s.actingUserId);
   const [filter, setFilter] = useState<ProjectStatus | "all">("all");
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const shown = filter === "all" ? projects : projects.filter((p) => p.status === filter);
-  const active = projects.filter((p) => p.status === "active").length;
+  // Tech engineers only see the projects they're actively working on;
+  // managers and admins keep full visibility across the portfolio.
+  const me = userById(actingUserId);
+  const scopedToMine = me?.departmentId === "dept-tech" && me.accessLevel === "employee";
+  const canCreate = me?.accessLevel === "admin" || me?.accessLevel === "manager";
+  const base = scopedToMine ? projects.filter((p) => p.memberIds.includes(actingUserId) || p.managerId === actingUserId) : projects;
+
+  const shown = filter === "all" ? base : base.filter((p) => p.status === filter);
+  const active = base.filter((p) => p.status === "active").length;
   const filters: (ProjectStatus | "all")[] = ["all", "active", "planning", "on_hold", "completed"];
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Projects" subtitle={`${active} active · ${projects.length} total`} />
+      <div className="flex items-start justify-between gap-3">
+        <PageHeader title="Projects" subtitle={scopedToMine ? "Your projects" : `${active} active · ${base.length} total`} />
+        {canCreate && (
+          <button onClick={() => setCreateOpen(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-sm font-medium text-white shadow-[var(--shadow-sm)] hover:bg-[var(--primary-hover)]">
+            <Plus size={16} /> New project
+          </button>
+        )}
+      </div>
+      <CreateProjectModal open={createOpen} onClose={() => setCreateOpen(false)} />
 
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         {filters.map((f) => (

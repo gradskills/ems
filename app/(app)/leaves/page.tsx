@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Card, Badge, Avatar, Button } from "@/components/ui/primitives";
@@ -50,10 +51,10 @@ export default function LeavesPage() {
               <Card key={l.id} className="p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">
-                    <Avatar name={u?.name ?? "?"} size={40} />
+                    <Link href={`/employees/${l.userId}`}><Avatar name={u?.name ?? "?"} size={40} /></Link>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">{u?.name}</span>
+                        <Link href={`/employees/${l.userId}`} className="font-medium hover:text-[var(--primary)]">{u?.name}</Link>
                         <Badge color="info">{leaveTypeLabel[l.type]}</Badge>
                         <Badge color={leaveStatusColor[l.status]} dot>{l.status}</Badge>
                       </div>

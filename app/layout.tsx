@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { PwaProvider } from "@/components/pwa/PwaProvider";
 import { ThemeController } from "@/components/theme/ThemeController";
+import { AppDataProvider } from "@/components/data/AppDataProvider";
 
 // Runs synchronously in <head> before first paint: reads the saved theme
 // (light or dark; defaults to light) and stamps it on <html> so there's no
@@ -55,6 +56,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full">
         <ThemeController />
+        <AppDataProvider />
         {children}
         <PwaProvider />
       </body>

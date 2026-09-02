@@ -91,9 +91,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
   };
   const workspaceItems = isMgmtLens
     ? [...work, ...overview].sort((a, b) => rank(a.href) - rank(b.href))
-    : isEmployee
-      ? [...overview, ...work]
-      : [...work, ...overview];
+    : [...work, ...overview];
+
+  // Sidebar sections. Employees get two independently-collapsible splits —
+  // "Personal" (self-service: dashboard, tasks, performance, helpdesk,
+  // announcements) and their department workspace (leads, pipeline, …).
+  // Managers/admin keep a single merged workspace section (People / Oversight
+  // stay as their own collapsible groups below).
+  const sections: { label: string; items: typeof nav; collapsible: boolean }[] = isEmployee
+    ? [
+        { label: "Personal", items: overview, collapsible: true },
+        { label: workLabel, items: work, collapsible: true },
+      ].filter((s) => s.items.length > 0)
+    : [{ label: workLabel, items: workspaceItems, collapsible: false }];
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
@@ -108,7 +118,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // identity on every Shell re-render (i.e. every navigation), which remounts the
   // whole sidebar and makes collapsed groups flash open. Keeping it top-level lets
   // React reconcile the sidebar in place across route changes.
-  const sidebarProps = { workspaceItems, people, oversight, workLabel, pathname };
+  const sidebarProps = { sections, people, oversight, pathname };
 
   // hold the app behind a skeleton until the session is resolved / redirect fires
   if (!authReady || !authUserId || employees.find((e) => e.id === authUserId)?.mustChangePassword) {
@@ -172,12 +182,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
 // be defined inline. Reconciles in place across navigation, so collapsed nav
 // groups stay collapsed without any remount flicker.
 function SidebarContent({
-  workspaceItems, people, oversight, workLabel, pathname, onNavClick,
+  sections, people, oversight, pathname, onNavClick,
 }: {
-  workspaceItems: ReturnType<typeof navFor>;
+  sections: { label: string; items: ReturnType<typeof navFor>; collapsible: boolean }[];
   people: ReturnType<typeof navFor>;
   oversight: ReturnType<typeof navFor>;
-  workLabel: string;
   pathname: string;
   onNavClick?: () => void;
 }) {
@@ -193,14 +202,12 @@ function SidebarContent({
         </div>
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {/* One merged workspace section per role — ordering is decided in Shell
-            (see workspaceItems / MGMT_WORKSPACE_ORDER). */}
-        <NavGroup
-          label={workLabel}
-          items={workspaceItems}
-          pathname={pathname}
-          onNavClick={onNavClick}
-        />
+        {/* Workspace sections — employees get "Personal" + their dept workspace
+            (both collapsible); managers/admin get one merged section. Ordering
+            and collapsibility are decided in Shell. */}
+        {sections.map((s) => (
+          <NavGroup key={s.label} label={s.label} items={s.items} pathname={pathname} collapsible={s.collapsible} onNavClick={onNavClick} />
+        ))}
         {people.length > 0 && <NavGroup label="People" items={people} pathname={pathname} collapsible onNavClick={onNavClick} />}
         {oversight.length > 0 && <NavGroup label="Oversight" items={oversight} pathname={pathname} collapsible onNavClick={onNavClick} />}
       </nav>
@@ -302,29 +309,35 @@ function RoleSwitcher() {
               <LogOut size={16} /> Sign out
             </button>
           </div>
-          <div className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Demo — switch account
-          </div>
-          {users.map((u) => {
-            const ud = departmentById(u.departmentId);
-            return (
-              <button
-                key={u.id}
-                onClick={() => {
-                  setActingUser(u.id);
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-2)]"
-              >
-                <Avatar name={u.name} size={28} />
-                <div className="min-w-0 flex-1 leading-tight">
-                  <div className="truncate text-sm font-medium">{u.name}</div>
-                  <div className="truncate text-[11px] text-[var(--muted)]">{roleLabel(u, ud)}</div>
-                </div>
-                {u.id === actingUserId && <Check size={16} className="shrink-0 text-[var(--primary)]" />}
-              </button>
-            );
-          })}
+          {/* Account switching is an admin-only oversight tool — a regular
+              employee/manager can only ever be themselves. */}
+          {user.accessLevel === "admin" && (
+            <>
+              <div className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Switch account (admin)
+              </div>
+              {users.map((u) => {
+                const ud = departmentById(u.departmentId);
+                return (
+                  <button
+                    key={u.id}
+                    onClick={() => {
+                      setActingUser(u.id);
+                      setOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-2)]"
+                  >
+                    <Avatar name={u.name} size={28} />
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <div className="truncate text-sm font-medium">{u.name}</div>
+                      <div className="truncate text-[11px] text-[var(--muted)]">{roleLabel(u, ud)}</div>
+                    </div>
+                    {u.id === actingUserId && <Check size={16} className="shrink-0 text-[var(--primary)]" />}
+                  </button>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
     </div>

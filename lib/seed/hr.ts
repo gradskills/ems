@@ -1,11 +1,66 @@
-import type { AttendanceRecord, LeaveRequest, Payslip, AttendanceStatus } from "@/lib/types";
+import type { AttendanceRecord, LeaveRequest, Payslip, AttendanceStatus, BreakSession, BreakType } from "@/lib/types";
 import { users } from "@/lib/seed/users";
 import { seededInt } from "@/lib/clock";
 import { daysAgo } from "@/lib/seed/dates";
 
 const DAY = 86400000;
+const MIN = 60000;
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const ym = (d: Date) => d.toISOString().slice(0, 7);
+
+const breakPlanned: Record<BreakType, number> = { tea: 10, snacks: 15, lunch: 45, casual: 20 };
+
+// ── Today's live punch state — so the "who's in today" board is populated on load.
+// Each active, non-admin employee is deterministically placed in one of a few
+// states (working, on a break, WFH, clocked out, or not in yet). The default demo
+// BDA (u-priya) is intentionally left "not in yet" so the clock-in flow still demos.
+function buildToday(): AttendanceRecord[] {
+  const out: AttendanceRecord[] = [];
+  const now = Date.now();
+  const today = ymd(new Date(now));
+  for (const u of users) {
+    if (u.accessLevel === "admin" || u.status === "inactive" || u.status === "resigned") continue;
+    if (u.id === "u-priya") continue; // keep the clock-in demo working for the default user
+
+    const roll = seededInt(`${u.id}-today`, 0, 100);
+    // morning check-in, but never in the future — at least 90 min before "now"
+    const morning = new Date(now); morning.setHours(9, seededInt(`${u.id}-tmin`, 0, 59), 0, 0);
+    const checkInMs = Math.min(morning.getTime(), now - 90 * MIN);
+    const checkIn = new Date(checkInMs).toISOString();
+
+    // a completed earlier break most in-office people took
+    const doneBreak = (type: BreakType, minsAgo: number): BreakSession => {
+      const start = now - minsAgo * MIN;
+      return { id: `BRK-${u.id}-done`, type, startedAt: new Date(start).toISOString(), plannedMinutes: breakPlanned[type], endedAt: new Date(start + breakPlanned[type] * MIN).toISOString(), remindersSent: 0 };
+    };
+
+    if (roll < 15) {
+      // not in yet — no record
+      continue;
+    } else if (roll < 35) {
+      // on a break right now (some overdue)
+      const type = (["tea", "snacks", "lunch", "casual"] as BreakType[])[seededInt(`${u.id}-btype`, 0, 4)];
+      const planned = breakPlanned[type];
+      const overdue = seededInt(`${u.id}-bover`, 0, 10) < 4;
+      const elapsed = overdue ? planned + seededInt(`${u.id}-bo`, 2, 12) : seededInt(`${u.id}-be`, 2, Math.max(3, planned - 2));
+      const brk: BreakSession = { id: `BRK-${u.id}-live`, type, startedAt: new Date(now - elapsed * MIN).toISOString(), plannedMinutes: planned, remindersSent: overdue ? seededInt(`${u.id}-brem`, 1, 3) : 0 };
+      out.push({ id: `AT-${u.id}-today`, userId: u.id, date: today, status: "present", checkIn, breaks: [doneBreak("tea", 180), brk] });
+    } else if (roll < 55) {
+      // working from home right now
+      out.push({ id: `AT-${u.id}-today`, userId: u.id, date: today, status: "wfh", checkIn });
+    } else if (roll < 80) {
+      // in the office, working now
+      const breaks = seededInt(`${u.id}-tb`, 0, 10) < 6 ? [doneBreak(seededInt(`${u.id}-tbt`, 0, 10) < 5 ? "tea" : "lunch", seededInt(`${u.id}-tba`, 60, 200))] : undefined;
+      out.push({ id: `AT-${u.id}-today`, userId: u.id, date: today, status: "present", checkIn, breaks });
+    } else {
+      // done for the day — clocked out
+      const outMs = now - seededInt(`${u.id}-tout`, 20, 150) * MIN;
+      const co = new Date(Math.max(outMs, checkInMs + 4 * 60 * MIN));
+      out.push({ id: `AT-${u.id}-today`, userId: u.id, date: today, status: "present", checkIn, checkOut: co.toISOString(), workedMinutes: Math.round((co.getTime() - checkInMs) / MIN), breaks: [doneBreak("lunch", 240)] });
+    }
+  }
+  return out;
+}
 
 // ── Attendance: last 30 calendar days for every active employee ──
 function buildAttendance(): AttendanceRecord[] {
@@ -47,7 +102,7 @@ function buildAttendance(): AttendanceRecord[] {
   return out;
 }
 
-export const attendance: AttendanceRecord[] = buildAttendance();
+export const attendance: AttendanceRecord[] = [...buildToday(), ...buildAttendance()];
 
 /** today's punch state for a user, if any */
 export function todayAttendance(userId: string): AttendanceRecord | undefined {

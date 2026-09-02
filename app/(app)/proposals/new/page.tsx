@@ -46,6 +46,8 @@ function Builder() {
   const createProposal = useApp((s) => s.createProposal);
   const role = useApp((s) => s.role);
   const company = useApp((s) => s.company);
+  const approvalRules = useApp((s) => s.approvalRules);
+  const bdaMax = approvalRules.discountBdaMaxPct;
 
   const existing = sp.get("proposal") ? proposals.find((p) => p.id === sp.get("proposal")) : undefined;
   const initialLeadId = existing?.leadId ?? sp.get("lead") ?? leads[0]?.id;
@@ -79,7 +81,7 @@ function Builder() {
 
   const totals = useMemo(() => computeTotals(items), [items]);
   const maxDiscount = Math.max(0, ...items.map((i) => i.discountPct));
-  const needsApproval = maxDiscount > 8;
+  const needsApproval = maxDiscount > bdaMax;
   const number = existing?.number ?? "QT/2025-26/0043 (draft)";
 
   return (
@@ -201,7 +203,7 @@ function Builder() {
                       <label className="block">
                         <span className="text-[10px] text-[var(--muted-2)]">Disc %</span>
                         <input type="number" min={0} max={100} value={it.discountPct} onChange={(e) => updateItem(idx, { discountPct: Math.min(100, Math.max(0, +e.target.value)) })}
-                          className={`h-8 w-full rounded border px-2 ${it.discountPct > 8 ? "border-[var(--warning)] text-[var(--warning)]" : "border-[var(--border-strong)]"}`} />
+                          className={`h-8 w-full rounded border px-2 ${it.discountPct > bdaMax ? "border-[var(--warning)] text-[var(--warning)]" : "border-[var(--border-strong)]"}`} />
                       </label>
                     </div>
                     <div className="mt-1 text-right text-[11px] text-[var(--muted)]">SAC {it.sacCode} · GST {it.gstRate}%</div>
@@ -319,7 +321,7 @@ function Builder() {
               <ShieldAlert size={20} className="shrink-0 text-[var(--warning)]" />
               <div className="flex-1 text-sm">
                 <div className="font-semibold text-[var(--warning)]">Manager approval required</div>
-                <div className="text-xs text-[var(--muted)]">Discount of {maxDiscount}% exceeds the 8% threshold. {role === "bda" ? "Sent to your manager." : "You can approve as manager."}</div>
+                <div className="text-xs text-[var(--muted)]">Discount of {maxDiscount}% exceeds the {bdaMax}% self-approve limit. {role === "bda" ? "Sent to your manager." : "You can approve as manager."}</div>
               </div>
               {role !== "bda" && existing?.approval?.required && (
                 <Button variant="success" size="sm" onClick={() => approve(existing.id)}><CheckCircle2 size={14} /> Approve</Button>

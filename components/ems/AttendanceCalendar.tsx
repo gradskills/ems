@@ -14,6 +14,8 @@ const statusStyle: Record<AttendanceStatus, { bg: string; fg: string }> = {
   absent: { bg: "var(--danger-soft)", fg: "var(--danger)" },
   holiday: { bg: "var(--surface-2)", fg: "var(--muted)" },
   week_off: { bg: "var(--surface-2)", fg: "var(--muted-2)" },
+  needs_review: { bg: "var(--warning-soft)", fg: "var(--warning)" },
+  pending_punchout: { bg: "var(--info-soft)", fg: "var(--info)" },
 };
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -46,33 +48,33 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
   const legend = legendStatuses ?? (["present", "wfh", "half_day", "leave", "absent"] as AttendanceStatus[]);
 
   return (
-    <div>
-      <div className="mb-3 flex items-center justify-between">
+    <div className="w-full max-w-[320px]">
+      <div className="mb-1.5 flex items-center justify-between">
         <button
           onClick={() => { setMonth(new Date(year, mon - 1, 1)); setSelected(null); }}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)]"
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)]"
           aria-label="Previous month"
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={15} />
         </button>
         <div className="text-center">
-          <div className="text-sm font-semibold">{month.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</div>
-          <div className="text-[11px] text-[var(--muted)]">{presentCount} present · {leaveCount} leave · {absentCount} absent</div>
+          <div className="text-[11px] font-semibold">{month.toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</div>
+          <div className="text-[9px] text-[var(--muted)]">{presentCount}p · {leaveCount}l · {absentCount}a</div>
         </div>
         <button
           onClick={() => { if (!isCurrentMonth) { setMonth(new Date(year, mon + 1, 1)); setSelected(null); } }}
           disabled={isCurrentMonth}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)] disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)] disabled:opacity-40"
           aria-label="Next month"
         >
-          <ChevronRight size={16} />
+          <ChevronRight size={15} />
         </button>
       </div>
 
-      <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-2)]">
+      <div className="mb-1 grid grid-cols-7 gap-px text-center text-[8px] font-semibold uppercase tracking-wide text-[var(--muted-2)]">
         {WEEKDAYS.map((w, i) => <div key={i}>{w}</div>)}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-px">
         {cells.map((d, i) => {
           if (d === null) return <div key={i} />;
           const dateStr = `${year}-${pad(mon + 1)}-${pad(d)}`;
@@ -86,23 +88,23 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
               onClick={() => rec && setSelected(selected?.id === rec.id ? null : rec)}
               disabled={!rec}
               title={rec ? `${d} — ${attendanceLabel[rec.status]}` : ""}
-              className={`relative flex aspect-square flex-col items-center justify-center rounded-lg border text-xs transition-colors ${
+              className={`relative flex aspect-square items-center justify-center rounded-sm border text-[10px] transition-colors ${
                 isToday ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]"
-              } ${rec ? "cursor-pointer hover:brightness-95" : isFuture ? "opacity-40" : ""} ${selected?.id === rec?.id ? "ring-2 ring-[var(--primary)]" : ""}`}
+              } ${rec ? "cursor-pointer hover:brightness-95" : isFuture ? "opacity-40" : ""} ${selected?.id === rec?.id ? "ring-1 ring-[var(--primary)]" : ""}`}
               style={st ? { background: st.bg, color: st.fg } : undefined}
             >
               <span className="font-medium">{d}</span>
-              {rec?.checkIn && <span className="mt-0.5 h-1 w-1 rounded-full" style={{ background: "currentColor" }} />}
+              {rec?.checkIn && <span className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full" style={{ background: "currentColor" }} />}
             </button>
           );
         })}
       </div>
 
       {/* legend */}
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
+      <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] text-[var(--muted)]">
         {legend.map((s) => (
-          <span key={s} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusStyle[s].fg }} />
+          <span key={s} className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ background: statusStyle[s].fg }} />
             {attendanceLabel[s]}
           </span>
         ))}
@@ -110,7 +112,7 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
 
       {/* selected day detail */}
       {selected && (
-        <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs">
+        <div className="mt-1.5 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-1.5 text-[10px]">
           <div className="mb-1 font-semibold">
             {new Date(selected.date).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · {attendanceLabel[selected.status]}
           </div>

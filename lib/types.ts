@@ -55,6 +55,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  employeeId?: string; // HR employee code from the backend, e.g. "EMP-7"
   role: Role; // legacy alias
   accessLevel: AccessLevel;
   departmentId: string;
@@ -420,7 +421,10 @@ export type AttendanceStatus =
   | "leave"
   | "absent"
   | "holiday"
-  | "week_off";
+  | "week_off"
+  // ── statuses that come from the real attendance backend ──
+  | "needs_review"      // punch-in without a valid punch-out, flagged for admin
+  | "pending_punchout"; // clocked in, not yet clocked out
 
 export type BreakType = "tea" | "snacks" | "lunch" | "casual";
 
@@ -446,6 +450,9 @@ export interface AttendanceRecord {
   checkInCoords?: { lat: number; lng: number };
   checkInTimezone?: string;
   checkInPhoto?: string; // base64 data URL of clock-in selfie
+  // ── aggregate break tracking from the real backend ──
+  totalBreakMinutes?: number; // sum of break minutes taken today
+  onBreak?: boolean; // currently on a break
 }
 
 export type LeaveType = "casual" | "sick" | "earned" | "unpaid" | "comp_off";
@@ -580,6 +587,9 @@ export interface Campaign {
   engagement: number; // %
   spend: number;
   leads: number;
+  // ── links ──
+  checkUrl?: string; // link to check the campaign status / management dashboard
+  liveUrl?: string;  // link to view the live campaign / ad preview
 }
 
 export type ContentStatus =
@@ -598,6 +608,9 @@ export interface ContentPost {
   scheduledAt: string;
   status: ContentStatus;
   ownerId: string;
+  // ── links ──
+  checkUrl?: string; // link to check the content / approval status
+  liveUrl?: string;  // link to view the live post
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -795,6 +808,14 @@ export interface AuditReport {
   roadmap?: RoadmapPhase[];
   impact?: ImpactMetric[];
   overallOpportunity?: string;
+  shareToken?: string; // powers the public audit portal link
+  customer?: {
+    decision?: "accepted" | "rejected";
+    decidedAt?: string;
+    via?: "gmail" | "otp";
+    contact?: string; // masked email / phone the customer signed in with
+    rejectReason?: string;
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════

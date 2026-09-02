@@ -10,7 +10,9 @@ import { Card, Badge, Avatar, ProgressBar, Stat } from "@/components/ui/primitiv
 import { Tabs, InfoRow } from "@/components/ems/kit";
 import { projectStatusColor, projectStatusLabel, priorityColor, taskStatusColor, taskStatusLabel, roleLabel } from "@/lib/ems";
 import { formatDate, relativeTime } from "@/lib/utils";
-import { ChevronLeft, ExternalLink, GitCommit, GitBranch, Plus, Minus, Building2, Mail } from "lucide-react";
+import { ChevronLeft, ExternalLink, GitCommit, GitBranch, Plus, Minus, Building2, Mail, Pencil, ListPlus } from "lucide-react";
+import { EditProjectModal } from "@/components/tech/EditProjectModal";
+import { AddTaskModal } from "@/components/tech/AddTaskModal";
 
 type Tab = "overview" | "git" | "tasks" | "team";
 
@@ -18,10 +20,16 @@ export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const projects = useApp((s) => s.projects);
   const tasks = useApp((s) => s.tasks);
+  const actingUserId = useApp((s) => s.actingUserId);
   const [tab, setTab] = useState<Tab>("overview");
+  const [editOpen, setEditOpen] = useState(false);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
 
   const p = projects.find((x) => x.id === params.id);
   if (!p) return notFound();
+
+  const me = userById(actingUserId);
+  const canEdit = me?.accessLevel === "admin" || me?.accessLevel === "manager";
 
   const manager = p.managerId ? userById(p.managerId) : undefined;
   const projTasks = tasks.filter((t) => t.projectId === p.id);
@@ -52,9 +60,17 @@ export default function ProjectDetailPage() {
               {p.repoUrl && <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-2)] px-2.5 py-1 text-xs font-medium"><GitBranch size={12} /> {p.repoUrl}</span>}
             </div>
           </div>
-          <div className="w-40">
-            <div className="mb-1 flex justify-between text-xs"><span className="text-[var(--muted)]">Progress</span><span className="font-semibold">{p.progress}%</span></div>
-            <ProgressBar value={p.progress} />
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex flex-wrap gap-2">
+              {(canEdit) && (
+                <button onClick={() => setEditOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"><Pencil size={13} /> Edit project</button>
+              )}
+              <button onClick={() => setAddTaskOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"><ListPlus size={13} /> Add task</button>
+            </div>
+            <div className="w-48">
+              <div className="mb-1 flex justify-between text-xs"><span className="text-[var(--muted)]">Progress</span><span className="font-semibold">{p.progress}%</span></div>
+              <ProgressBar value={p.progress} />
+            </div>
           </div>
         </div>
       </Card>
@@ -156,6 +172,9 @@ export default function ProjectDetailPage() {
           })}
         </div>
       )}
+
+      <EditProjectModal project={p} open={editOpen} onClose={() => setEditOpen(false)} />
+      <AddTaskModal projectId={p.id} open={addTaskOpen} onClose={() => setAddTaskOpen(false)} />
     </div>
   );
 }

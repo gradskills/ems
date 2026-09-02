@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useParams, notFound } from "next/navigation";
 import { useApp } from "@/lib/store";
@@ -8,12 +8,23 @@ import { userById } from "@/lib/seed/users";
 import { Card, Button, Badge } from "@/components/ui/primitives";
 import { Field, Input } from "@/components/ui/modal";
 import { DocPreview } from "@/components/qims/DocPreview";
+import { ShareBar } from "@/components/qims/ShareBar";
 import { proposalTotals, proposalReviewLabel } from "@/lib/qims";
 import { quotationHtml, proposalMessage } from "@/lib/documents";
 import { renderDesignHtml } from "@/lib/design";
 import type { Design, ProposalItem } from "@/lib/types";
 import { inr } from "@/lib/utils";
 import { ChevronLeft, Plus, Trash2, Save, Check, Send, ShieldCheck, X, Share2, Copy, ArrowRightLeft } from "lucide-react";
+
+// Returns a copy of `value` that only updates `delay` ms after it last changed.
+function useDebounced<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
 
 export default function ProposalDocPage() {
   const params = useParams<{ id: string }>();
@@ -49,11 +60,22 @@ export default function ProposalDocPage() {
   const t = proposalTotals(items);
   const link = token ? `${typeof window !== "undefined" ? window.location.origin : ""}/q/${token}` : "";
 
-  // right-side live preview reflects UNSAVED edits (or a Studio design if one exists)
-  const previewP = { ...p, items, validTill: validTill ? new Date(validTill).toISOString() : p.validTill };
+  // Right-side live preview reflects UNSAVED edits (or a Studio design if one
+  // exists). The edited fields are debounced so the heavy document iframe only
+  // re-renders after you stop typing — otherwise it reloaded on every keystroke
+  // and bounced the page to the top.
   const savedDesign = docDesigns[`quotation:${p.id}`];
-  let baseHtml = "";
-  try { baseHtml = savedDesign ? renderDesignHtml(JSON.parse(savedDesign) as Design, { embed: true }) : quotationHtml(previewP, lead, company, { embed: true }); } catch { baseHtml = quotationHtml(previewP, lead, company, { embed: true }); }
+  const dItems = useDebounced(items, 450);
+  const dValidTill = useDebounced(validTill, 450);
+  const baseHtml = useMemo(() => {
+    const previewP = { ...p, items: dItems, validTill: dValidTill ? new Date(dValidTill).toISOString() : p.validTill };
+    try {
+      return savedDesign ? renderDesignHtml(JSON.parse(savedDesign) as Design, { embed: true }) : quotationHtml(previewP, lead, company, { embed: true });
+    } catch {
+      return quotationHtml(previewP, lead, company, { embed: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.id, dItems, dValidTill, savedDesign]);
 
   function setItem(i: number, patch: Partial<ProposalItem>) { setItems((arr) => arr.map((it, idx) => (idx === i ? { ...it, ...patch } : it))); }
   function addItem() { setItems((arr) => [...arr, { packageId: "", name: "New service", billingType: "one_time", sacCode: "998314", qty: 1, unitPrice: 0, discountPct: 0, gstRate: 18 }]); }
@@ -72,9 +94,9 @@ export default function ProposalDocPage() {
         <Badge color={review.color} dot>{review.label}</Badge>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
         {/* LEFT — content editor */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <Card className="p-4">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold">Line items</h3>
@@ -117,29 +139,45 @@ export default function ProposalDocPage() {
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {!p.reviewStatus && isOwner && <Button size="sm" onClick={() => submitForReview(p.id)}><Send size={14} /> Send for review</Button>}
+                {!p.reviewStatus && isOwner && <Button size="sm" variant="secondary" onClick={() => submitForReview(p.id)}><Send size={14} /> Send for review</Button>}
                 {p.reviewStatus === "internal_review" && canReview && (
                   <>
                     <Button size="sm" variant="success" onClick={() => verifyProposal(p.id)}><ShieldCheck size={14} /> Verify</Button>
                     <Button size="sm" variant="danger" onClick={() => setRejecting(true)}><X size={14} /> Reject</Button>
                   </>
                 )}
-                {p.reviewStatus === "verified" && !token && <Button size="sm" onClick={() => setToken(shareProposal(p.id))}><Share2 size={14} /> Client link</Button>}
-                <Button size="sm" variant="secondary" onClick={() => { const id = convert(p.id); router.push(`/invoices/${id}`); }}><ArrowRightLeft size={14} /> To invoice</Button>
+                {/* Owner (BDA) can send straight to the client; a reviewer can once verified. */}
+                {!token && (isOwner || (canReview && p.reviewStatus === "verified")) && (
+                  <Button size="sm" onClick={() => setToken(shareProposal(p.id))}><Share2 size={14} /> Send to client</Button>
+                )}
+                {/* Converting a quotation to an invoice is a billing action — managers/admin only. */}
+                {canReview && <Button size="sm" variant="outline" onClick={() => { const id = convert(p.id); router.push(`/invoices/${id}`); }}><ArrowRightLeft size={14} /> To invoice</Button>}
               </div>
             )}
             {token && (
-              <div className="mt-2 flex items-center gap-2">
-                <input readOnly value={link} className="h-8 flex-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs text-[var(--muted)]" />
-                <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={14} /> : <Copy size={14} />}</Button>
-                <Link href={`/q/${token}`}><Button size="sm" variant="outline">Client view</Button></Link>
+              <div className="mt-3">
+                <div className="mb-1 text-xs font-medium text-[var(--muted)]">Send this quotation to the client</div>
+                <ShareBar
+                  link={link}
+                  message={proposalMessage(p, lead)}
+                  contact={{ email: lead?.email, phone: lead?.phone }}
+                  baseHtml={baseHtml}
+                  filename={p.number.replace(/\//g, "-")}
+                  label="Quotation"
+                  leadId={p.leadId}
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <input readOnly value={link} className="h-8 flex-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs text-[var(--muted)]" />
+                  <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={14} /> : <Copy size={14} />}</Button>
+                  <Link href={`/q/${token}`}><Button size="sm" variant="outline">Client view</Button></Link>
+                </div>
               </div>
             )}
           </Card>
         </div>
 
         {/* RIGHT — actual document that will be sent */}
-        <div>
+        <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
           <div className="mb-2 text-xs font-medium text-[var(--muted)]">Preview — this is exactly what the client receives</div>
           <DocPreview
             docKey={`quotation:${p.id}`}

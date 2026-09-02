@@ -8,7 +8,7 @@ import { Card, Badge, Avatar, Button } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
 import { visibleEmployees, leaveTypeLabel, auditReportColor, auditReportLabel } from "@/lib/ems";
 import { formatDate } from "@/lib/utils";
-import { Check, X, CalendarCheck, FileText, FileSearch, CheckCircle2 } from "lucide-react";
+import { Check, X, CalendarCheck, FileText, FileSearch, CheckCircle2, Eye, Send } from "lucide-react";
 
 export default function ApprovalsPage() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -18,8 +18,12 @@ export default function ApprovalsPage() {
   const auditReports = useApp((s) => s.auditReports);
   const decideLeave = useApp((s) => s.decideLeave);
   const verifyProposal = useApp((s) => s.verifyProposal);
+  const shareProposal = useApp((s) => s.shareProposal);
+  const rejectProposal = useApp((s) => s.rejectProposal);
   const verifyAuditReport = useApp((s) => s.verifyAuditReport);
   const setAuditReportStatus = useApp((s) => s.setAuditReportStatus);
+  const shareAuditReport = useApp((s) => s.shareAuditReport);
+  const rejectAuditReport = useApp((s) => s.rejectAuditReport);
   const me = userById(actingUserId)!;
 
   const visibleIds = useMemo(() => new Set(visibleEmployees(me, employees).map((u) => u.id)), [me, employees]);
@@ -45,9 +49,9 @@ export default function ApprovalsPage() {
             return (
               <Card key={l.id} className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-3">
-                  <Avatar name={u?.name ?? "?"} size={34} />
+                  <Link href={`/employees/${l.userId}`}><Avatar name={u?.name ?? "?"} size={34} /></Link>
                   <div>
-                    <div className="text-sm font-medium">{u?.name} · {leaveTypeLabel[l.type]} · {l.days}d</div>
+                    <div className="text-sm font-medium"><Link href={`/employees/${l.userId}`} className="hover:text-[var(--primary)]">{u?.name}</Link> · {leaveTypeLabel[l.type]} · {l.days}d</div>
                     <div className="text-xs text-[var(--muted)]">{formatDate(l.from)} → {formatDate(l.to)} · {l.reason}</div>
                   </div>
                 </div>
@@ -65,14 +69,16 @@ export default function ApprovalsPage() {
         <section className="space-y-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><FileText size={16} /> Quotations to verify <Badge color="warning">{pendingProposals.length}</Badge></h3>
           {pendingProposals.map((p) => (
-            <Card key={p.id} className="flex items-center justify-between p-4">
+            <Card key={p.id} className="flex items-center justify-between gap-3 p-4">
               <div>
                 <div className="text-sm font-medium">{p.number}</div>
                 <div className="text-xs text-[var(--muted)]">{p.approval?.reason ?? "Awaiting internal review before sending to client"}</div>
               </div>
-              <div className="flex gap-2">
-                <Link href="/proposals"><Button size="sm" variant="ghost">Open</Button></Link>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Link href={`/proposals/${p.id}`}><Button size="sm" variant="outline"><Eye size={15} /> Preview</Button></Link>
                 <Button size="sm" variant="success" onClick={() => verifyProposal(p.id)}><Check size={15} /> Verify</Button>
+                <Button size="sm" onClick={() => shareProposal(p.id)}><Send size={15} /> Send</Button>
+                <Button size="sm" variant="danger" onClick={() => rejectProposal(p.id, "Rejected at internal review")}><X size={15} /> Decline</Button>
               </div>
             </Card>
           ))}
@@ -83,12 +89,17 @@ export default function ApprovalsPage() {
         <section className="space-y-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><FileSearch size={16} /> Audit reports to verify <Badge color="warning">{pendingReports.length}</Badge></h3>
           {pendingReports.map((r) => (
-            <Card key={r.id} className="flex items-center justify-between p-4">
+            <Card key={r.id} className="flex items-center justify-between gap-3 p-4">
               <div>
                 <div className="text-sm font-medium">{r.company}</div>
                 <div className="text-xs text-[var(--muted)]"><Badge color={auditReportColor[r.status]}>{auditReportLabel[r.status]}</Badge> · score {r.score}/100</div>
               </div>
-              <Button size="sm" variant="success" onClick={() => { verifyAuditReport(r.id); setAuditReportStatus(r.id, "sent"); }}><Check size={15} /> Verify & send</Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Link href={`/audit-reports/${r.id}`}><Button size="sm" variant="outline"><Eye size={15} /> Preview</Button></Link>
+                <Button size="sm" variant="success" onClick={() => { verifyAuditReport(r.id); setAuditReportStatus(r.id, "sent"); }}><Check size={15} /> Verify</Button>
+                <Button size="sm" onClick={() => shareAuditReport(r.id)}><Send size={15} /> Send</Button>
+                <Button size="sm" variant="danger" onClick={() => rejectAuditReport(r.id, "Rejected at verification")}><X size={15} /> Decline</Button>
+              </div>
             </Card>
           ))}
         </section>

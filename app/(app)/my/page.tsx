@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { userById, userName } from "@/lib/seed/users";
 import { departmentById } from "@/lib/seed/org";
-import { Card, Badge, Button, Stat, StageBadge, Avatar } from "@/components/ui/primitives";
+import { Card, Badge, Button, Stat, StageBadge } from "@/components/ui/primitives";
 import { ApplyLeaveModal } from "@/components/ems/ApplyLeaveModal";
 import { BreakWidget } from "@/components/ems/BreakWidget";
 import { CameraCapture } from "@/components/ems/CameraCapture";
+import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel } from "@/lib/ems";
 import { formatDate, inr } from "@/lib/utils";
-import { LogIn, LogOut, CalendarPlus, CheckSquare, Clock, MapPin, Camera, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight } from "lucide-react";
+import { LogOut, CalendarPlus, CheckSquare, Clock, MapPin, Camera, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight } from "lucide-react";
 
 export default function MyDashboardPage() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -28,6 +29,7 @@ export default function MyDashboardPage() {
   const [sessionElapsed, setSessionElapsed] = useState("");
   const [clockingIn, setClockingIn] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [clockErr, setClockErr] = useState("");
 
   const today = new Date().toISOString().slice(0, 10);
   const todayRec = attendance.find((a) => a.userId === me.id && a.date === today);
@@ -55,9 +57,12 @@ export default function MyDashboardPage() {
 
   const doClockIn = async (r: { photo: string; coords?: { lat: number; lng: number }; timezone?: string; wfh: boolean }) => {
     setClockingIn(true);
-    await clockIn(r);
+    setClockErr("");
+    const ok = await clockIn(r);
     setClockingIn(false);
+    if (!ok) setClockErr("Couldn't get your location. Please enable location access and try again.");
   };
+  const fmtT = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—");
   const myAtt = attendanceSummary(attendance.filter((a) => a.userId === me.id));
   const myTasks = tasks.filter((t) => t.assigneeId === me.id && t.status !== "done").sort((a, b) => (a.dueAt ?? "") < (b.dueAt ?? "") ? -1 : 1);
   const myLeaves = leaves.filter((l) => l.userId === me.id).slice(0, 4);
@@ -69,6 +74,8 @@ export default function MyDashboardPage() {
   // Admins get a command-center dashboard (no personal clock-in/leave/tasks).
   if (isAdmin) return <AdminMyDashboard greet={greet} name={me.name} />;
 
+  const clockedInNow = !!todayRec?.checkIn && !todayRec?.checkOut;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -76,56 +83,70 @@ export default function MyDashboardPage() {
           <h1 className="text-2xl font-bold tracking-tight">{greet}, {me.name.split(" ")[0]}</h1>
           <p className="text-sm text-[var(--muted)]">{roleLabel(me, dept)}</p>
         </div>
-        {!isAdmin && (
-          <div className="flex items-center gap-2">
-            {!todayRec?.checkIn ? (
-              <Button onClick={handleClockIn} disabled={clockingIn}>
-                <Camera size={16} /> {clockingIn ? "Clocking in…" : "Clock in with selfie"}
-              </Button>
-            ) : !todayRec?.checkOut ? (
-              <Button variant="outline" onClick={clockOut}><LogOut size={16} /> Clock out</Button>
-            ) : (
-              <Badge color="success" dot>Clocked out for today</Badge>
-            )}
-            <Button variant="secondary" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
-          </div>
-        )}
+        <Button variant="secondary" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
       </div>
 
-      {!isAdmin && todayRec?.checkIn && (
-        <Card className="p-3 text-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              {todayRec.checkInPhoto && (
-                <img src={todayRec.checkInPhoto} alt="Clock-in selfie" className="h-8 w-8 rounded-full object-cover ring-2 ring-[var(--success)]" style={{ transform: "scaleX(-1)" }} />
-              )}
-              <Clock size={16} className="text-[var(--muted)]" />
-              Clocked in at {new Date(todayRec.checkIn).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
-              {todayRec.checkOut && ` · out at ${new Date(todayRec.checkOut).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}`}
-              {!todayRec.checkOut && sessionElapsed && (
-                <span className="ml-1 rounded-md bg-[var(--primary-soft)] px-2 py-0.5 font-mono text-xs font-semibold text-[var(--primary)]">
-                  {sessionElapsed}
-                </span>
-              )}
+      {/* ── Clock in/out + at-a-glance stats + breaks ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="p-6 lg:col-span-2">
+          <div className="flex flex-col items-center gap-4 py-4 text-center">
+            <div className={`flex h-16 w-16 items-center justify-center rounded-full ${clockedInNow ? "bg-[var(--success-soft)] text-[var(--success)]" : "bg-[var(--primary-soft)] text-[var(--primary)]"}`}>
+              <Clock size={30} />
             </div>
-            {todayRec.checkInCoords && (
-              <div className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
-                <MapPin size={13} />
-                {todayRec.checkInCoords.lat.toFixed(5)}, {todayRec.checkInCoords.lng.toFixed(5)}
-                {todayRec.checkInTimezone && <span className="ml-1 text-[var(--muted-2)]">({todayRec.checkInTimezone})</span>}
-              </div>
+
+            {!todayRec?.checkIn ? (
+              <>
+                <div>
+                  <div className="text-lg font-semibold">You have not clocked in yet</div>
+                  <div className="text-sm text-[var(--muted)]">Clock in to start your workday. A selfie is required.</div>
+                </div>
+                {clockErr && <div className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs font-medium text-[var(--danger)]">{clockErr}</div>}
+                <Button size="lg" onClick={handleClockIn} disabled={clockingIn}><Camera size={18} /> {clockingIn ? "Clocking in…" : "Clock in with selfie"}</Button>
+              </>
+            ) : !todayRec?.checkOut ? (
+              <>
+                {todayRec.checkInPhoto && (
+                  <img src={todayRec.checkInPhoto} alt="Clock-in selfie" className="h-16 w-16 rounded-full object-cover ring-2 ring-[var(--success)]" style={{ transform: "scaleX(-1)" }} />
+                )}
+                <div className="font-mono text-4xl font-bold tabular-nums">{sessionElapsed || "00:00:00"}</div>
+                <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                  Clocked in at {fmtT(todayRec.checkIn)}
+                  {todayRec.status === "wfh" && <Badge color="info" dot>Work from home</Badge>}
+                </div>
+                {todayRec.checkInCoords && (
+                  <div className="flex items-center gap-1.5 text-xs text-[var(--muted-2)]">
+                    <MapPin size={13} /> {todayRec.checkInCoords.lat.toFixed(4)}, {todayRec.checkInCoords.lng.toFixed(4)}
+                    {todayRec.checkInTimezone && <span>({todayRec.checkInTimezone})</span>}
+                  </div>
+                )}
+                <Button size="lg" variant="outline" onClick={clockOut}><LogOut size={18} /> Clock out</Button>
+              </>
+            ) : (
+              <>
+                <Badge color="success" dot>Clocked out for today</Badge>
+                {todayRec.checkInPhoto && (
+                  <img src={todayRec.checkInPhoto} alt="Clock-in selfie" className="h-14 w-14 rounded-full object-cover ring-2 ring-[var(--success)]" style={{ transform: "scaleX(-1)" }} />
+                )}
+                <div className="text-sm text-[var(--muted)]">In {fmtT(todayRec.checkIn)} · Out {fmtT(todayRec.checkOut)}
+                  {todayRec.workedMinutes != null && ` · ${Math.floor(todayRec.workedMinutes / 60)}h ${todayRec.workedMinutes % 60}m worked`}
+                </div>
+              </>
             )}
           </div>
         </Card>
-      )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="p-4"><Stat label="Open tasks" value={myTasks.length} /></Card>
-        <Card className="p-4"><Stat label="Attendance" value={`${myAtt.pct}%`} sub="30 days" accent="var(--success)" /></Card>
-        <Card className="p-4"><Stat label="Casual left" value={me.leaveBalance?.casual ?? 0} /></Card>
-        <Card className="p-4"><Stat label="Earned left" value={me.leaveBalance?.earned ?? 0} /></Card>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4"><Stat label="Open tasks" value={myTasks.length} /></Card>
+            <Card className="p-4"><Stat label="Attendance" value={`${myAtt.pct}%`} sub="30 days" accent="var(--success)" /></Card>
+            <Card className="p-4"><Stat label="Casual left" value={me.leaveBalance?.casual ?? 0} /></Card>
+            <Card className="p-4"><Stat label="Earned left" value={me.leaveBalance?.earned ?? 0} /></Card>
+          </div>
+          <BreakWidget clockedIn={clockedInNow} />
+        </div>
       </div>
 
+      {/* ── My tasks + leave requests + announcements ── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
@@ -152,7 +173,6 @@ export default function MyDashboardPage() {
         </Card>
 
         <div className="space-y-4">
-          {!isAdmin && <BreakWidget clockedIn={!!todayRec?.checkIn && !todayRec?.checkOut} />}
           <Card className="p-5">
             <h3 className="mb-2 text-sm font-semibold">My leave requests</h3>
             {myLeaves.length === 0 ? <div className="py-4 text-center text-xs text-[var(--muted)]">None yet</div> : (
@@ -178,6 +198,29 @@ export default function MyDashboardPage() {
             </div>
           </Card>
         </div>
+      </div>
+
+      {/* ── Recent days + attendance calendar ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="p-4 lg:col-span-2">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><CalendarClock size={16} className="text-[var(--muted)]" /> Recent days</div>
+          <div className="space-y-1.5">
+            {attendance.filter((a) => a.userId === me.id).slice(0, 7).map((a) => (
+              <div key={a.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                <span className="font-medium">{new Date(a.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</span>
+                <div className="flex items-center gap-2">
+                  {a.checkInPhoto && <img src={a.checkInPhoto} alt="" className="h-5 w-5 rounded-full object-cover" style={{ transform: "scaleX(-1)" }} />}
+                  <span className="text-xs text-[var(--muted)]">{fmtT(a.checkIn)} → {fmtT(a.checkOut)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="flex flex-col p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><CalendarClock size={16} className="text-[var(--muted)]" /> My attendance</div>
+          <div className="flex flex-1 items-center justify-center"><AttendanceCalendar records={attendance.filter((a) => a.userId === me.id)} /></div>
+        </Card>
       </div>
 
       <ApplyLeaveModal open={leaveOpen} onClose={() => setLeaveOpen(false)} />
@@ -235,11 +278,11 @@ function AdminMyDashboard({ greet, name }: { greet: string; name: string }) {
           <h1 className="text-2xl font-bold tracking-tight">{greet}, {name.split(" ")[0]}</h1>
           <p className="text-sm text-[var(--muted)]">Here's what's happening across the company today.</p>
         </div>
-        <Link href="/clock"><Button variant="outline"><Users size={16} /> Who's in</Button></Link>
+        <Link href="/attendance"><Button variant="outline"><Users size={16} /> Who's in</Button></Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Link href="/clock"><Card className="lift p-4"><Stat label="Clocked in today" value={`${todayRecs.length}/${staff.length}`} sub={`${workingNow} working now`} accent="var(--success)" /></Card></Link>
+        <Link href="/attendance"><Card className="lift p-4"><Stat label="Clocked in today" value={`${todayRecs.length}/${staff.length}`} sub={`${workingNow} working now`} accent="var(--success)" /></Card></Link>
         <Card className="p-4"><Stat label="Meetings today" value={todaysMeetings.length} /></Card>
         <Link href="/tasks"><Card className="lift p-4"><Stat label="Open tasks" value={openTasks.length} sub={`${todaysTasks.length} due today`} /></Card></Link>
         <Link href="/pipeline"><Card className="lift p-4"><Stat label="Deals to close" value={dealsToClose.length} sub={inr(pipelineValue, { compact: true })} accent="var(--primary)" /></Card></Link>
