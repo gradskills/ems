@@ -49,13 +49,6 @@ export default function LoginPage() {
     }
   }
 
-  // Real accounts (sign in with your work email or login ID + your own password).
-  const demoAccounts = [
-    { role: "Founder", id: "navandarabhijeet" },
-    { role: "Tech", id: "nizmanvith" },
-    { role: "BD", id: "shuklanidhi1020" },
-  ];
-
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-10">
       <div className="absolute right-4 top-4">
@@ -81,7 +74,7 @@ export default function LoginPage() {
                 autoCapitalize="none"
                 autoCorrect="off"
                 autoComplete="username"
-                placeholder="e.g. priya"
+                placeholder="Work email or login ID"
                 className="h-10 w-full bg-transparent text-sm outline-none"
               />
             </div>
@@ -115,23 +108,6 @@ export default function LoginPage() {
             <LogIn size={16} /> {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
-
-        <div className="mt-4 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] p-3 text-xs">
-          <div className="mb-1.5 font-semibold text-[var(--muted)]">Team login IDs</div>
-          <div className="flex flex-wrap gap-1.5">
-            {demoAccounts.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => setLoginId(a.id)}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 font-medium hover:border-[var(--primary)]"
-              >
-                {a.role}: {a.id}
-              </button>
-            ))}
-          </div>
-          <div className="mt-2 text-[var(--muted-2)]">Sign in with your work email (or the login ID above) and your own password.</div>
-        </div>
       </div>
     </div>
   );
