@@ -89,7 +89,7 @@ const SEEDABLE: { slice: string; table: string; seed: unknown[] }[] = [
 
 const USER_COLS =
   "id,name,email,phone_number,role,access_level,department_id,manager_id,status," +
-  "employment_type,location,avatar_color,monthly_target_calls,monthly_target_revenue," +
+  "employment_type,location,avatar_color,avatar_url,monthly_target_calls,monthly_target_revenue," +
   "ctc_annual,salary,bank_last4,leave_balance,login_id,must_change_password," +
   "designation,employee_id,onboarding_date,created_at"; // deliberately excludes password_hash
 
@@ -172,7 +172,16 @@ export async function hydrateAll(): Promise<HydratedData | null> {
 
     return out;
   } catch (e) {
-    console.error("[hydrate] failed:", e);
+    // Supabase errors are plain objects (message/code/hint) that serialize to
+    // "{}" in the console — surface the useful fields, and treat this as a
+    // handled warning since the store falls back to seed data.
+    const err = e as { message?: string; code?: string; hint?: string; details?: string };
+    console.warn(
+      "[hydrate] falling back to seed data:",
+      err?.message ?? String(e),
+      err?.code ? `(code ${err.code})` : "",
+      err?.hint ? `— ${err.hint}` : ""
+    );
     return null;
   }
 }

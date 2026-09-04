@@ -5,6 +5,7 @@ import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Modal, Field, Input } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
+import { AvatarPicker } from "@/components/ems/MyProfileEditModal";
 import { roleLabel } from "@/lib/ems";
 import type { AccessLevel, EmploymentType, EmployeeStatus, User } from "@/lib/types";
 
@@ -18,6 +19,7 @@ export function EditEmployeeModal({ open, onClose, employee }: { open: boolean; 
   const actingUserId = useApp((s) => s.actingUserId);
   const viewer = userById(actingUserId)!;
 
+  const [avatarUrl, setAvatarUrl] = useState(employee.avatarUrl ?? "");
   const [name, setName] = useState(employee.name);
   const [email, setEmail] = useState(employee.email);
   const [phone, setPhone] = useState(employee.phone);
@@ -33,6 +35,7 @@ export function EditEmployeeModal({ open, onClose, employee }: { open: boolean; 
 
   useEffect(() => {
     if (open) {
+      setAvatarUrl(employee.avatarUrl ?? "");
       setName(employee.name);
       setEmail(employee.email);
       setPhone(employee.phone);
@@ -54,6 +57,7 @@ export function EditEmployeeModal({ open, onClose, employee }: { open: boolean; 
   function submit() {
     if (!valid) return;
     updateEmployee(employee.id, {
+      avatarUrl,
       name,
       email,
       phone,
@@ -83,6 +87,10 @@ export function EditEmployeeModal({ open, onClose, employee }: { open: boolean; 
         </>
       }
     >
+      <div className="mb-4">
+        <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Profile photo</span>
+        <AvatarPicker name={name || employee.name} value={avatarUrl} onChange={setAvatarUrl} />
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Full name"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
         <Field label="Work email"><Input value={email} onChange={(e) => setEmail(e.target.value)} /></Field>

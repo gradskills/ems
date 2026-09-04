@@ -119,6 +119,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // whole sidebar and makes collapsed groups flash open. Keeping it top-level lets
   // React reconcile the sidebar in place across route changes.
   const sidebarProps = { sections, people, oversight, pathname };
+  const mActiveHref = bestActiveHref(pathname, mNav.map((n) => n.href));
 
   // hold the app behind a skeleton until the session is resolved / redirect fires
   if (!authReady || !authUserId || employees.find((e) => e.id === authUserId)?.mustChangePassword) {
@@ -157,7 +158,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur lg:hidden">
         {mNav.map((n) => {
-          const active = pathname === n.href || pathname.startsWith(n.href + "/");
+          const active = n.href === mActiveHref;
           const Icon = n.icon;
           return (
             <Link
@@ -178,6 +179,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Picks the single active nav item: the href that most specifically matches the
+// current path. A plain prefix test lights up parent routes too (e.g. "/my"
+// would also match while on "/my/profile"), so the longest matching href wins.
+function bestActiveHref(pathname: string, hrefs: string[]): string | undefined {
+  let best: string | undefined;
+  for (const h of hrefs) {
+    if (pathname === h || pathname.startsWith(h + "/")) {
+      if (best === undefined || h.length > best.length) best = h;
+    }
+  }
+  return best;
+}
+
 // Stable, top-level sidebar body — see the note in Shell about why this must not
 // be defined inline. Reconciles in place across navigation, so collapsed nav
 // groups stay collapsed without any remount flicker.
@@ -190,6 +204,13 @@ function SidebarContent({
   pathname: string;
   onNavClick?: () => void;
 }) {
+  // resolve the single active item across every group, so a parent route never
+  // co-highlights with its more specific child (e.g. /my vs /my/profile)
+  const activeHref = bestActiveHref(pathname, [
+    ...sections.flatMap((s) => s.items.map((i) => i.href)),
+    ...people.map((i) => i.href),
+    ...oversight.map((i) => i.href),
+  ]);
   return (
     <>
       <div className="flex h-16 items-center gap-2 border-b border-[var(--border)] px-5">
@@ -206,10 +227,10 @@ function SidebarContent({
             (both collapsible); managers/admin get one merged section. Ordering
             and collapsibility are decided in Shell. */}
         {sections.map((s) => (
-          <NavGroup key={s.label} label={s.label} items={s.items} pathname={pathname} collapsible={s.collapsible} onNavClick={onNavClick} />
+          <NavGroup key={s.label} label={s.label} items={s.items} activeHref={activeHref} collapsible={s.collapsible} onNavClick={onNavClick} />
         ))}
-        {people.length > 0 && <NavGroup label="People" items={people} pathname={pathname} collapsible onNavClick={onNavClick} />}
-        {oversight.length > 0 && <NavGroup label="Oversight" items={oversight} pathname={pathname} collapsible onNavClick={onNavClick} />}
+        {people.length > 0 && <NavGroup label="People" items={people} activeHref={activeHref} collapsible onNavClick={onNavClick} />}
+        {oversight.length > 0 && <NavGroup label="Oversight" items={oversight} activeHref={activeHref} collapsible onNavClick={onNavClick} />}
       </nav>
       <div className="border-t border-[var(--border)] px-3 py-3 lg:hidden">
         <MobileLensDropdown />
@@ -219,7 +240,7 @@ function SidebarContent({
   );
 }
 
-function NavGroup({ label, items, pathname, collapsible, onNavClick }: { label: string; items: ReturnType<typeof navFor>; pathname: string; collapsible?: boolean; onNavClick?: () => void }) {
+function NavGroup({ label, items, activeHref, collapsible, onNavClick }: { label: string; items: ReturnType<typeof navFor>; activeHref?: string; collapsible?: boolean; onNavClick?: () => void }) {
   // Collapsible groups (Overview / People / Oversight) remember their open/closed
   // state in the store, so navigating between pages keeps a collapsed group
   // collapsed (local state would reset on every re-render of the shell).
@@ -242,7 +263,7 @@ function NavGroup({ label, items, pathname, collapsible, onNavClick }: { label: 
       )}
       <div className={cn("space-y-0.5", expanded ? "" : "hidden")}>
         {items.map((n) => {
-          const active = pathname === n.href || pathname.startsWith(n.href + "/");
+          const active = n.href === activeHref;
           const Icon = n.icon;
           return (
             <Link
@@ -286,7 +307,7 @@ function RoleSwitcher() {
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 rounded-lg p-2 text-left hover:bg-[var(--surface-2)]"
       >
-        <Avatar name={user.name} size={34} />
+        <Avatar name={user.name} size={34} src={user.avatarUrl} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-sm font-semibold">{user.name}</div>
           <div className="truncate text-xs text-[var(--muted)]">{roleLabel(user, dept)}</div>
@@ -327,7 +348,7 @@ function RoleSwitcher() {
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-2)]"
                   >
-                    <Avatar name={u.name} size={28} />
+                    <Avatar name={u.name} size={28} src={u.avatarUrl} />
                     <div className="min-w-0 flex-1 leading-tight">
                       <div className="truncate text-sm font-medium">{u.name}</div>
                       <div className="truncate text-[11px] text-[var(--muted)]">{roleLabel(u, ud)}</div>
@@ -364,7 +385,7 @@ function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <ThemeToggle />
         <NotificationBell />
         <div className="lg:hidden">
-          <Avatar name={user.name} size={32} />
+          <Avatar name={user.name} size={32} src={user.avatarUrl} />
         </div>
       </div>
     </header>

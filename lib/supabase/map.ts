@@ -83,6 +83,7 @@ export function userToApp(row: Row): User {
     joinedAt: (row.onboarding_date as string) ?? (row.created_at as string) ?? undefined,
     location: (row.location as string) ?? undefined,
     avatarColor: (row.avatar_color as string) ?? undefined,
+    avatarUrl: (row.avatar_url as string) ?? undefined,
     monthlyTargetCalls: (row.monthly_target_calls as number) ?? undefined,
     monthlyTargetRevenue: (row.monthly_target_revenue as number) ?? undefined,
     ctcAnnual: (row.ctc_annual as number) ?? undefined,
@@ -110,6 +111,7 @@ export function userToRow(u: Partial<User>): Row {
   if (u.employmentType !== undefined) row.employment_type = u.employmentType;
   if (u.location !== undefined) row.location = u.location;
   if (u.avatarColor !== undefined) row.avatar_color = u.avatarColor;
+  if (u.avatarUrl !== undefined) row.avatar_url = u.avatarUrl || null;
   if (u.monthlyTargetCalls !== undefined) row.monthly_target_calls = u.monthlyTargetCalls;
   if (u.monthlyTargetRevenue !== undefined) row.monthly_target_revenue = u.monthlyTargetRevenue;
   if (u.ctcAnnual !== undefined) row.ctc_annual = u.ctcAnnual;

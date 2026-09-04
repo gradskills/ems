@@ -187,7 +187,7 @@ interface AppState {
 
   // ── EMS actions ──
   createEmployee: (input: NewEmployeeInput) => { id: string; loginId: string; tempPassword: string; email: CredentialEmail };
-  updateEmployee: (id: string, patch: Partial<Pick<User, "name" | "email" | "phone" | "departmentId" | "accessLevel" | "designation" | "managerId" | "employmentType" | "location" | "status" | "monthlyTargetCalls" | "monthlyTargetRevenue" | "ctcAnnual">>) => void;
+  updateEmployee: (id: string, patch: Partial<Pick<User, "name" | "email" | "phone" | "departmentId" | "accessLevel" | "designation" | "managerId" | "employmentType" | "location" | "status" | "monthlyTargetCalls" | "monthlyTargetRevenue" | "ctcAnnual" | "avatarUrl">>) => void;
   addDepartment: (input: NewDepartmentInput) => string;
   applyLeave: (input: NewLeaveInput) => void;
   decideLeave: (id: string, decision: "approved" | "rejected", note?: string) => void;

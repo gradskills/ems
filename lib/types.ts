@@ -67,6 +67,7 @@ export interface User {
   location?: string;
   phone: string;
   avatarColor?: string;
+  avatarUrl?: string; // profile photo — a compressed data URI (prototype) or hosted URL
   teamId?: string;
   monthlyTargetCalls?: number;
   monthlyTargetRevenue?: number;

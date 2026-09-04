@@ -117,7 +117,7 @@ export default function EmployeesPage() {
               <tr key={u.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
                 <td className="px-4 py-3">
                   <Link href={`/employees/${u.id}`} className="flex items-center gap-3">
-                    <Avatar name={u.name} size={34} />
+                    <Avatar name={u.name} size={34} src={u.avatarUrl} />
                     <div>
                       <div className="font-medium hover:text-[var(--primary)]">{u.name}</div>
                       <div className="text-xs text-[var(--muted)]">{roleLabel(u, d)}</div>
@@ -157,7 +157,7 @@ export default function EmployeesPage() {
           return (
             <Link key={u.id} href={`/employees/${u.id}`}>
               <Card className="lift flex items-center gap-3 p-3">
-                <Avatar name={u.name} size={40} />
+                <Avatar name={u.name} size={40} src={u.avatarUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{u.name}</div>
                   <div className="text-xs text-[var(--muted)]">{roleLabel(u, d)}</div>

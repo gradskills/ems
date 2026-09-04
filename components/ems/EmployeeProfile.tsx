@@ -14,8 +14,10 @@ import {
   attendanceSummary, attendanceLabel, attendanceColor, leaveTypeLabel, leaveStatusColor,
   taskStatusColor, taskStatusLabel, priorityColor, projectStatusColor, projectStatusLabel, payslipTotals, monthLabel, roleLabel,
 } from "@/lib/ems";
-import { ChevronLeft, Mail, Phone, MapPin, ChevronRight, Wallet, Download, Pencil } from "lucide-react";
+import { ChevronLeft, Mail, Phone, MapPin, ChevronRight, Wallet, Download, Pencil, IdCard } from "lucide-react";
 import { EditEmployeeModal } from "@/components/ems/EditEmployeeModal";
+import { MyProfileEditModal } from "@/components/ems/MyProfileEditModal";
+import { IdCardModal } from "@/components/ems/EmployeeIdCard";
 
 type Tab = "overview" | "projects" | "tasks" | "attendance" | "leaves" | "payroll";
 
@@ -52,6 +54,8 @@ export function EmployeeProfile({
   })();
   const [tab, setTab] = useState<Tab>(urlTab ?? "overview");
   const [editOpen, setEditOpen] = useState(false);
+  const [myEditOpen, setMyEditOpen] = useState(false);
+  const [idCardOpen, setIdCardOpen] = useState(false);
   const [attMonth, setAttMonth] = useState<string>("all"); // "all" or "YYYY-MM"
 
   // when the URL's ?tab= changes (client nav to a new deep-link), adopt it — the
@@ -75,6 +79,7 @@ export function EmployeeProfile({
   const viewer = userById(actingUserId)!;
   const canSeePay = viewer.accessLevel !== "employee" || viewer.id === emp.id;
   const canEdit = viewer.accessLevel !== "employee";
+  const isSelf = viewer.id === emp.id;
   const dept = departmentById(emp.departmentId);
   const mgr = emp.managerId ? userById(emp.managerId) : undefined;
 
@@ -148,7 +153,7 @@ export function EmployeeProfile({
       {/* Header card */}
       <Card className="p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <Avatar name={emp.name} size={64} />
+          <Avatar name={emp.name} size={64} src={emp.avatarUrl} />
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight">{emp.name}</h1>
@@ -166,7 +171,9 @@ export function EmployeeProfile({
           <div className="flex flex-col items-start gap-3 sm:items-end">
             <Stat label="Attendance" value={`${att.pct}%`} sub="all time" />
             <div className="flex gap-2">
-              {canEdit && <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil size={14} /> Edit</Button>}
+              {isSelf && <Button variant="outline" size="sm" onClick={() => setMyEditOpen(true)}><Pencil size={14} /> Edit profile</Button>}
+              {canEdit && !isSelf && <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil size={14} /> Edit</Button>}
+              <Button variant="outline" size="sm" onClick={() => setIdCardOpen(true)}><IdCard size={14} /> ID Card</Button>
               <Button variant="outline" size="sm" onClick={exportProfile}><Download size={14} /> Download profile</Button>
             </div>
           </div>
@@ -362,7 +369,9 @@ export function EmployeeProfile({
           })}
         </div>
       )}
-      {canEdit && <EditEmployeeModal open={editOpen} onClose={() => setEditOpen(false)} employee={emp} />}
+      {canEdit && !isSelf && <EditEmployeeModal open={editOpen} onClose={() => setEditOpen(false)} employee={emp} />}
+      {isSelf && <MyProfileEditModal open={myEditOpen} onClose={() => setMyEditOpen(false)} employee={emp} />}
+      <IdCardModal open={idCardOpen} onClose={() => setIdCardOpen(false)} employee={emp} />
     </div>
   );
 }
