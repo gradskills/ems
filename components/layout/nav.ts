@@ -25,6 +25,7 @@ import {
   ClipboardList,
   Compass,
   CalendarClock,
+  CircleUser,
   LucideIcon,
 } from "lucide-react";
 
@@ -78,6 +79,7 @@ export const navItems: NavItem[] = [
   // Clock In/Out page now redirects into it). Admins get a command center at /my
   // and see who's in today from the Attendance screen instead.
   { href: "/my", label: "My Dashboard", icon: LayoutDashboard, group: "overview", when: selfService, mobile: true },
+  { href: "/my/profile", label: "My Profile", icon: CircleUser, group: "overview", when: selfService },
   { href: "/tasks", label: "My Tasks", icon: CheckSquare, group: "overview", when: selfService, mobile: true },
   { href: "/performance", label: "My Performance", icon: TrendingUp, group: "overview", when: (c) => c.accessLevel === "employee" && c.features.has("leads") },
   { href: "/tickets", label: "Helpdesk", icon: LifeBuoy, group: "overview", when: selfService },
