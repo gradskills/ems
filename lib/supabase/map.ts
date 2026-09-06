@@ -92,6 +92,7 @@ export function userToApp(row: Row): User {
     leaveBalance: (row.leave_balance as User["leaveBalance"]) ?? undefined,
     loginId: (row.login_id as string) ?? undefined,
     mustChangePassword: Boolean(row.must_change_password),
+    approvalStatus: (row.approval_status as User["approvalStatus"]) ?? "approved",
     // employee_id / dob exist in the DB but have no app field — carried loosely:
     employeeId: (row.employee_id as string) ?? undefined,
   } as User & { employeeId?: string };
@@ -120,6 +121,7 @@ export function userToRow(u: Partial<User>): Row {
   if (u.leaveBalance !== undefined) row.leave_balance = u.leaveBalance;
   if (u.loginId !== undefined) row.login_id = u.loginId;
   if (u.mustChangePassword !== undefined) row.must_change_password = u.mustChangePassword;
+  if (u.approvalStatus !== undefined) row.approval_status = u.approvalStatus;
   return row;
 }
 

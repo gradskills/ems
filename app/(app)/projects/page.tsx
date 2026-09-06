@@ -6,7 +6,7 @@ import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Card, Badge, Avatar, ProgressBar } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
-import { projectStatusColor, projectStatusLabel, priorityColor } from "@/lib/ems";
+import { projectStatusColor, projectStatusLabel, priorityColor, visibleProjects } from "@/lib/ems";
 import { formatDate } from "@/lib/utils";
 import { GitBranch, Plus } from "lucide-react";
 import type { ProjectStatus } from "@/lib/types";
@@ -22,8 +22,11 @@ export default function ProjectsPage() {
   // managers and admins keep full visibility across the portfolio.
   const me = userById(actingUserId);
   const scopedToMine = me?.departmentId === "dept-tech" && me.accessLevel === "employee";
-  const canCreate = me?.accessLevel === "admin" || me?.accessLevel === "manager";
-  const base = scopedToMine ? projects.filter((p) => p.memberIds.includes(actingUserId) || p.managerId === actingUserId) : projects;
+  // Tech engineers can raise projects too (they go to admin for verification).
+  const canCreate = me?.accessLevel === "admin" || me?.accessLevel === "manager" || me?.departmentId === "dept-tech";
+  const raw = scopedToMine ? projects.filter((p) => p.memberIds.includes(actingUserId) || p.managerId === actingUserId || p.createdById === actingUserId) : projects;
+  // hide projects still pending verification from people not attached to them
+  const base = me ? visibleProjects(me, raw) : raw;
 
   const shown = filter === "all" ? base : base.filter((p) => p.status === filter);
   const active = base.filter((p) => p.status === "active").length;
@@ -58,7 +61,13 @@ export default function ProjectsPage() {
                   <div className="truncate font-semibold">{p.name}</div>
                   <div className="text-xs text-[var(--muted)]">{p.clientCompany}</div>
                 </div>
-                <Badge color={projectStatusColor[p.status]} dot>{projectStatusLabel[p.status]}</Badge>
+                {p.approvalStatus === "pending" ? (
+                  <Badge color="warning" dot>Pending approval</Badge>
+                ) : p.approvalStatus === "rejected" ? (
+                  <Badge color="danger" dot>Rejected</Badge>
+                ) : (
+                  <Badge color={projectStatusColor[p.status]} dot>{projectStatusLabel[p.status]}</Badge>
+                )}
               </div>
               <p className="mb-3 line-clamp-2 text-sm text-[var(--muted)]">{p.description}</p>
               <div className="mb-3 flex items-center gap-2">

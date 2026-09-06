@@ -7,7 +7,7 @@ import { Modal, Field, Input } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
 import { roleLabel } from "@/lib/ems";
 import type { AccessLevel, EmploymentType, CredentialEmail } from "@/lib/types";
-import { Mail, Copy, Check, KeyRound, User as UserIcon } from "lucide-react";
+import { Mail, Copy, Check, KeyRound, User as UserIcon, Clock } from "lucide-react";
 
 const selectCls =
   "h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]";
@@ -74,7 +74,18 @@ export function CreateEmployeeModal({ open, onClose }: { open: boolean; onClose:
       }
     >
       {sent ? (
-        <CredentialSent email={sent} />
+        <div className="space-y-4">
+          {viewer.accessLevel !== "admin" && (
+            <div className="flex items-start gap-3 rounded-lg bg-[var(--warning-soft)] px-4 py-3 text-sm">
+              <Clock size={18} className="mt-0.5 shrink-0 text-[var(--warning)]" />
+              <div>
+                <div className="font-medium text-[var(--warning)]">Awaiting admin approval</div>
+                <div className="text-xs text-[var(--muted)]">They can sign in, but won&apos;t get access to any features until an admin approves them from the Approvals page.</div>
+              </div>
+            </div>
+          )}
+          <CredentialSent email={sent} />
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Full name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Aarav Kapoor" /></Field>

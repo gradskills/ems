@@ -150,6 +150,13 @@ export async function persistLeaveDecision(id: string, status: string, approverI
   }).eq("id", Number(id)).then(({ error }) => warn("leave decision", error));
 }
 
+/** Delete a leave request. Works on rows with a numeric id. */
+export async function persistLeaveDelete(id: string) {
+  const sb = getSupabase();
+  if (!sb || suspended || !/^\d+$/.test(id)) return;
+  await sb.from("leave_requests").delete().eq("id", Number(id)).then(({ error }) => warn("leave delete", error));
+}
+
 /** Update an existing employee's editable columns. */
 export async function persistUserUpdate(id: string, patch: Partial<User>) {
   const sb = getSupabase();

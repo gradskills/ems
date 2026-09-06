@@ -12,7 +12,7 @@ import { CameraCapture } from "@/components/ems/CameraCapture";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel } from "@/lib/ems";
 import { formatDate, inr } from "@/lib/utils";
-import { LogOut, CalendarPlus, CheckSquare, Clock, MapPin, Camera, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight } from "lucide-react";
+import { LogOut, CalendarPlus, CheckSquare, Clock, MapPin, Camera, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight, AlertTriangle, LifeBuoy } from "lucide-react";
 
 export default function MyDashboardPage() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -22,10 +22,12 @@ export default function MyDashboardPage() {
   const announcements = useApp((s) => s.announcements);
   const clockIn = useApp((s) => s.clockIn);
   const clockOut = useApp((s) => s.clockOut);
+  const requestAttendanceFix = useApp((s) => s.requestAttendanceFix);
   const me = userById(actingUserId)!;
   const dept = departmentById(me.departmentId);
   const isAdmin = me.accessLevel === "admin"; // admins don't clock in or apply leave
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [fixRequested, setFixRequested] = useState<string | null>(null);
   const [sessionElapsed, setSessionElapsed] = useState("");
   const [clockingIn, setClockingIn] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -76,6 +78,12 @@ export default function MyDashboardPage() {
 
   const clockedInNow = !!todayRec?.checkIn && !todayRec?.checkOut;
 
+  // A day gone by where they clocked in but never clocked out (forgot to log
+  // out), or the backend flagged the punch for review — only an admin can fix it.
+  const unfinished = attendance
+    .filter((a) => a.userId === me.id && a.date < today && ((a.checkIn && !a.checkOut) || a.status === "needs_review" || a.status === "pending_punchout"))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -85,6 +93,33 @@ export default function MyDashboardPage() {
         </div>
         <Button variant="secondary" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
       </div>
+
+      {unfinished && (
+        <Card className="flex flex-col gap-3 border-[var(--warning)] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--warning-soft)] text-[var(--warning)]">
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold">Attendance needs a fix</div>
+              <div className="text-xs text-[var(--muted)]">
+                It looks like you didn&apos;t clock out on {new Date(unfinished.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}. Only an admin can correct your clock-out time.
+              </div>
+            </div>
+          </div>
+          {fixRequested === unfinished.date ? (
+            <span className="shrink-0 rounded-lg bg-[var(--success-soft)] px-3 py-2 text-xs font-medium text-[var(--success)]">Request sent to admin ✓</span>
+          ) : (
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => { requestAttendanceFix(unfinished.date); setFixRequested(unfinished.date); }}
+            >
+              <LifeBuoy size={16} /> Contact admin
+            </Button>
+          )}
+        </Card>
+      )}
 
       {/* ── Clock in/out + at-a-glance stats + breaks ── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -174,7 +209,10 @@ export default function MyDashboardPage() {
 
         <div className="space-y-4">
           <Card className="p-5">
-            <h3 className="mb-2 text-sm font-semibold">My leave requests</h3>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">My leave requests</h3>
+              <Link href="/my/leaves" className="text-xs text-[var(--primary)]">View all →</Link>
+            </div>
             {myLeaves.length === 0 ? <div className="py-4 text-center text-xs text-[var(--muted)]">None yet</div> : (
               <div className="space-y-2">
                 {myLeaves.map((l) => (

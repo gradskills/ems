@@ -80,6 +80,33 @@ export interface User {
   loginId?: string; // username used to sign in
   password?: string; // demo-only plaintext credential
   mustChangePassword?: boolean; // true right after onboarding until they set their own
+  // ── access approval — a manager-created joiner has no feature access until an
+  // admin approves them. Existing/admin-created accounts default to "approved". ──
+  approvalStatus?: "pending" | "approved" | "rejected";
+  // ── personal details (employee self-service; surfaced on the ID card) ──
+  personalEmail?: string;
+  dateOfBirth?: string; // YYYY-MM-DD
+  bloodGroup?: string; // e.g. "O+"
+  address?: string; // home / residential address
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelation?: string; // e.g. "Father", "Spouse"
+}
+
+// ── Company days ────────────────────────────────────────────────
+// Admin-declared calendar overrides that apply to everyone: a public holiday,
+// a designated working day (e.g. a working Saturday), a day the attendance
+// portal had technical trouble (so missed punches are excused), or any other
+// annotated day. Surfaced on the Attendance screen.
+export type CompanyDayType = "holiday" | "working_day" | "technical_issue" | "other";
+
+export interface CompanyDay {
+  id: string;
+  date: string; // YYYY-MM-DD
+  type: CompanyDayType;
+  reason: string;
+  createdBy?: string; // user id of the admin who set it
+  createdAt?: string; // ISO
 }
 
 // A credential hand-off "email" — simulated in-app outbox, not really sent.
@@ -552,6 +579,11 @@ export interface Project {
   progress: number; // 0-100
   techStack: string[];
   commits: GitCommit[];
+  // ── approval — a project added by a non-admin (e.g. a tech engineer) needs an
+  // admin to verify it before it goes live. Legacy/admin-created → "approved". ──
+  approvalStatus?: "pending" | "approved" | "rejected";
+  approvalReason?: string; // admin's note when rejecting
+  createdById?: string; // who raised the project (for approval routing)
 }
 
 // ═══════════════════════════════════════════════════════════════

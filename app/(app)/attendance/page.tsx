@@ -8,15 +8,24 @@ import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, ProgressBar, Stat } from "@/components/ui/primitives";
 import { PageHeader, TableShell, SegmentedControl, SearchInput } from "@/components/ems/kit";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
+import { AttendanceEditModal } from "@/components/ems/AttendanceEditModal";
 import {
   visibleEmployees, attendanceSummary, attendanceLabel, attendanceColor,
   activeBreak, breakTypeLabel,
 } from "@/lib/ems";
-import type { AttendanceRecord } from "@/lib/types";
-import { MapPin, Clock, Camera, Table2, CalendarDays, Users, Coffee, ChevronRight } from "lucide-react";
+import type { AttendanceRecord, User, CompanyDay, CompanyDayType } from "@/lib/types";
+import { MapPin, Clock, Camera, Table2, CalendarDays, Users, Coffee, ChevronRight, Pencil, CalendarCog, PartyPopper, Briefcase, AlertTriangle, Info, Trash2, Plus } from "lucide-react";
 
-type View = "today" | "everyone" | "calendar";
+type View = "today" | "everyone" | "calendar" | "days";
 type BadgeColor = "slate" | "success" | "warning" | "info" | "purple" | "danger" | "primary";
+
+// ── company-day (holiday / working-day / portal-issue) presentation ──
+const companyDayMeta: Record<CompanyDayType, { label: string; color: BadgeColor; icon: typeof PartyPopper }> = {
+  holiday: { label: "Holiday", color: "purple", icon: PartyPopper },
+  working_day: { label: "Working day", color: "success", icon: Briefcase },
+  technical_issue: { label: "Technical / portal issue", color: "warning", icon: AlertTriangle },
+  other: { label: "Other", color: "info", icon: Info },
+};
 
 // derive a person's live state for today from their record
 function todayState(rec?: AttendanceRecord): { key: "working" | "wfh" | "break" | "out" | "notin"; label: string; color: BadgeColor } {
@@ -32,12 +41,35 @@ const fmtTime = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("en-IN
 
 export default function AttendancePage() {
   const actingUserId = useApp((s) => s.actingUserId);
+  const viewLens = useApp((s) => s.viewLens);
   const employees = useApp((s) => s.employees);
   const attendance = useApp((s) => s.attendance);
   const departments = useApp((s) => s.departments);
+  const companyDays = useApp((s) => s.companyDays);
+  const saveCompanyDay = useApp((s) => s.saveCompanyDay);
+  const removeCompanyDay = useApp((s) => s.removeCompanyDay);
   const viewer = userById(actingUserId)!;
   const today = new Date().toISOString().slice(0, 10);
+  const isAdmin = viewer.accessLevel === "admin";
+  const lensDept = viewLens !== "management" ? viewLens : null;
 
+  const todayCompanyDay = companyDays.find((d) => d.date === today);
+
+  // company-day form (admin) — add or edit a holiday / working-day / portal-issue
+  const [cdId, setCdId] = useState<string | null>(null);
+  const [cdDate, setCdDate] = useState("");
+  const [cdType, setCdType] = useState<CompanyDayType>("holiday");
+  const [cdReason, setCdReason] = useState("");
+  const resetCdForm = () => { setCdId(null); setCdDate(""); setCdType("holiday"); setCdReason(""); };
+  const editCompanyDay = (d: CompanyDay) => { setCdId(d.id); setCdDate(d.date); setCdType(d.type); setCdReason(d.reason); };
+  const submitCompanyDay = () => {
+    if (!cdDate || !cdReason.trim()) return;
+    saveCompanyDay({ id: cdId ?? undefined, date: cdDate, type: cdType, reason: cdReason.trim() });
+    resetCdForm();
+  };
+  const sortedCompanyDays = useMemo(() => [...companyDays].sort((a, b) => (a.date < b.date ? 1 : -1)), [companyDays]);
+
+  const [editTarget, setEditTarget] = useState<{ user: User; date: string } | null>(null);
   const [view, setView] = useState<View>("today");
   const [deptFilter, setDeptFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>(""); // today view: "" | working | break | wfh | out | notin
@@ -57,8 +89,10 @@ export default function AttendancePage() {
   }, []);
 
   const people = useMemo(
-    () => visibleEmployees(viewer, employees).filter((u) => u.id !== viewer.id || viewer.accessLevel !== "admin"),
-    [viewer, employees]
+    () => visibleEmployees(viewer, employees)
+      .filter((u) => u.id !== viewer.id || viewer.accessLevel !== "admin")
+      .filter((u) => !lensDept || u.departmentId === lensDept),
+    [viewer, employees, lensDept]
   );
 
   // today's record per person (for the "who's in" board + counters)
@@ -132,6 +166,27 @@ export default function AttendancePage() {
     <div className="space-y-5">
       <PageHeader title="Attendance" subtitle={`${people.length} people${viewer.accessLevel === "manager" ? " in your team" : ""} · ${inToday} in today`} />
 
+      {/* Today is an admin-declared company day (holiday / working-day / portal issue) */}
+      {todayCompanyDay && (() => {
+        const meta = companyDayMeta[todayCompanyDay.type];
+        const Icon = meta.icon;
+        return (
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--primary)]"><Icon size={18} /></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">Today: {meta.label}</span>
+                <Badge color={meta.color} dot>{meta.label}</Badge>
+              </div>
+              <div className="truncate text-xs text-[var(--muted)]">{todayCompanyDay.reason}</div>
+            </div>
+            {isAdmin && (
+              <button onClick={() => { setView("days"); editCompanyDay(todayCompanyDay); }} className="shrink-0 text-xs font-medium text-[var(--primary)] hover:underline">Edit</button>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card className="p-4"><Stat label="Working now" value={count("working")} accent="var(--success)" /></Card>
         <Card className="p-4"><Stat label="On break" value={count("break")} accent="var(--warning)" /></Card>
@@ -148,13 +203,14 @@ export default function AttendancePage() {
             { key: "today", label: "In today", icon: <Users size={14} /> },
             { key: "everyone", label: "Everyone", icon: <Table2 size={14} /> },
             { key: "calendar", label: "Calendar", icon: <CalendarDays size={14} /> },
+            ...(isAdmin ? [{ key: "days" as View, label: "Company days", icon: <CalendarCog size={14} /> }] : []),
           ]}
         />
         <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {view !== "calendar" && (
+          {view !== "calendar" && view !== "days" && (
             <div className="sm:w-52"><SearchInput value={query} onChange={setQuery} placeholder="Search name…" /></div>
           )}
-          {view !== "calendar" && (
+          {view !== "calendar" && view !== "days" && (
             <select
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
@@ -237,7 +293,16 @@ export default function AttendancePage() {
                           </button>
                         ) : <span className="text-xs text-[var(--muted-2)]">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-right"><Link href={`/employees/${u.id}?tab=attendance`}><ChevronRight size={16} className="text-[var(--muted-2)]" /></Link></td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {isAdmin && (
+                            <button onClick={() => setEditTarget({ user: u, date: today })} title="Edit attendance" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]">
+                              <Pencil size={15} />
+                            </button>
+                          )}
+                          <Link href={`/employees/${u.id}?tab=attendance`}><ChevronRight size={16} className="text-[var(--muted-2)]" /></Link>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -287,7 +352,16 @@ export default function AttendancePage() {
                       <td className="px-4 py-3"><div className="flex items-center gap-2"><ProgressBar value={s.pct} className="w-24" color={s.pct >= 90 ? "var(--success)" : s.pct >= 75 ? "var(--warning)" : "var(--danger)"} /><span className="text-xs font-medium">{s.pct}%</span></div></td>
                       <td className="px-4 py-3 text-xs text-[var(--muted)]">{s.present} / {s.half} / {s.leave} / {s.absent}</td>
                       <td className="px-4 py-3 text-xs">{workedMin ? `${Math.floor(workedMin / 60)}h ${workedMin % 60}m` : "—"}</td>
-                      <td className="px-4 py-3 text-right"><Link href={`/employees/${u.id}?tab=attendance`}><ChevronRight size={16} className="text-[var(--muted-2)]" /></Link></td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {isAdmin && (
+                            <button onClick={() => setEditTarget({ user: u, date: today })} title="Edit today's attendance" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]">
+                              <Pencil size={15} />
+                            </button>
+                          )}
+                          <Link href={`/employees/${u.id}?tab=attendance`}><ChevronRight size={16} className="text-[var(--muted-2)]" /></Link>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -318,6 +392,72 @@ export default function AttendancePage() {
         </Card>
       )}
 
+      {/* ── COMPANY DAYS (admin: holidays / working days / portal issues) ── */}
+      {view === "days" && isAdmin && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* add / edit form */}
+          <Card className="p-5 lg:col-span-1">
+            <h3 className="mb-1 text-sm font-semibold">{cdId ? "Edit company day" : "Add a company day"}</h3>
+            <p className="mb-4 text-xs text-[var(--muted)]">Declare a holiday, a designated working day, a day the attendance portal had issues, or any other note. Applies to everyone and can be set for past dates.</p>
+            <div className="space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Date</span>
+                <input type="date" value={cdDate} onChange={(e) => setCdDate(e.target.value)} className="h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Type</span>
+                <select value={cdType} onChange={(e) => setCdType(e.target.value as CompanyDayType)} className="h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]">
+                  {(Object.keys(companyDayMeta) as CompanyDayType[]).map((t) => <option key={t} value={t}>{companyDayMeta[t].label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Reason / note</span>
+                <input value={cdReason} onChange={(e) => setCdReason(e.target.value)} placeholder="e.g. Diwali, Server maintenance…" className="h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]" />
+              </label>
+              <div className="flex gap-2 pt-1">
+                <button onClick={submitCompanyDay} disabled={!cdDate || !cdReason.trim()} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50">
+                  {cdId ? <><Pencil size={14} /> Save changes</> : <><Plus size={14} /> Add day</>}
+                </button>
+                {cdId && <button onClick={resetCdForm} className="rounded-lg border border-[var(--border-strong)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--surface-2)]">Cancel</button>}
+              </div>
+            </div>
+          </Card>
+
+          {/* list of declared days */}
+          <Card className="overflow-hidden lg:col-span-2">
+            {sortedCompanyDays.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16 text-center">
+                <CalendarCog size={26} className="text-[var(--muted-2)]" />
+                <p className="text-sm text-[var(--muted)]">No company days declared yet.</p>
+              </div>
+            ) : (
+              <TableShell head={<><th className="px-4 py-3">Date</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Reason</th><th className="px-4 py-3"></th></>}>
+                {sortedCompanyDays.map((d) => {
+                  const meta = companyDayMeta[d.type];
+                  const Icon = meta.icon;
+                  return (
+                    <tr key={d.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium">{new Date(d.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</div>
+                        <div className="text-[11px] text-[var(--muted-2)]">{new Date(d.date).toLocaleDateString("en-IN", { weekday: "long" })}{d.date === today ? " · Today" : ""}</div>
+                      </td>
+                      <td className="px-4 py-3"><Badge color={meta.color} dot><span className="inline-flex items-center gap-1"><Icon size={11} /> {meta.label}</span></Badge></td>
+                      <td className="px-4 py-3 text-sm text-[var(--muted)]">{d.reason}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => editCompanyDay(d)} title="Edit" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]"><Pencil size={15} /></button>
+                          <button onClick={() => removeCompanyDay(d.id)} title="Delete" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--danger)]"><Trash2 size={15} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </TableShell>
+            )}
+          </Card>
+        </div>
+      )}
+
       {photoModal && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setPhotoModal(null)}>
           <div className="relative max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
@@ -326,6 +466,16 @@ export default function AttendancePage() {
             <button onClick={() => setPhotoModal(null)} className="absolute right-3 top-3 rounded-lg p-1 text-[var(--muted-2)] hover:bg-[var(--surface-2)]">✕</button>
           </div>
         </div>
+      )}
+
+      {isAdmin && (
+        <AttendanceEditModal
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          employee={editTarget?.user ?? null}
+          date={editTarget?.date ?? today}
+          record={editTarget ? attendance.find((a) => a.userId === editTarget.user.id && a.date === editTarget.date) : undefined}
+        />
       )}
     </div>
   );

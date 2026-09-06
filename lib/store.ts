@@ -19,6 +19,7 @@ import type {
   Department,
   DeptFeature,
   AttendanceRecord,
+  AttendanceStatus,
   BreakType,
   BreakSession,
   LeaveRequest,
@@ -37,6 +38,8 @@ import type {
   AppNotification,
   Announcement,
   CompanySettings,
+  CompanyDay,
+  CompanyDayType,
   ApprovalRules,
   AuditReport,
   AuditReportStatus,
@@ -63,13 +66,14 @@ import { activities as seedActivities } from "@/lib/seed/activities";
 import { auditLog as seedAudit } from "@/lib/seed/audit";
 import { proposals as seedProposals, invoices as seedInvoices } from "@/lib/seed/proposals";
 import { deliveryProjects as seedDelivery } from "@/lib/seed/prospects";
-import { CURRENT_BDA_ID, userById, users as seedUsersRaw } from "@/lib/seed/users";
+import { CURRENT_BDA_ID, userById, users as seedUsersRaw, elevate } from "@/lib/seed/users";
 import { withCredentials, loginIdFor, tempPassword, readAuth, writeAuth } from "@/lib/auth";
 
 // every seeded account gets demo login credentials at store init
 const seedUsers = seedUsersRaw.map(withCredentials);
 import { departments as seedDepartments, companySettings as seedCompany, approvalRules as seedApprovalRules } from "@/lib/seed/org";
 import { attendance as seedAttendance, leaveRequests as seedLeaves, payslips as seedPayslips } from "@/lib/seed/hr";
+import { readCompanyDays, writeCompanyDays, writePersonalExtra, applyPersonalExtras } from "@/lib/localExtras";
 import { tasks as seedTasks } from "@/lib/seed/tasks";
 import { projects as seedProjects } from "@/lib/seed/projects";
 import { mediaClients as seedClients, campaigns as seedCampaigns, contentPosts as seedContent } from "@/lib/seed/media";
@@ -82,7 +86,7 @@ import { proposalTotals } from "@/lib/qims";
 import { hydrateAll } from "@/lib/supabase/hydrate";
 import {
   persistChanges, setPersistSuspended,
-  persistAttendance, persistLeaveApply, persistLeaveDecision, persistUserUpdate,
+  persistAttendance, persistLeaveApply, persistLeaveDecision, persistLeaveDelete, persistUserUpdate,
 } from "@/lib/supabase/persist";
 
 export type SendChannel = "email" | "whatsapp";
@@ -169,6 +173,7 @@ interface AppState {
   docDesigns: Record<string, string>; // docKey → JSON.stringify(Design) for a single edited document
   company: CompanySettings;
   approvalRules: ApprovalRules;
+  companyDays: CompanyDay[];
 
   // ── actions ──
   moveStage: (leadId: string, to: LeadStage, reason?: string) => void;
@@ -187,12 +192,23 @@ interface AppState {
 
   // ── EMS actions ──
   createEmployee: (input: NewEmployeeInput) => { id: string; loginId: string; tempPassword: string; email: CredentialEmail };
-  updateEmployee: (id: string, patch: Partial<Pick<User, "name" | "email" | "phone" | "departmentId" | "accessLevel" | "designation" | "managerId" | "employmentType" | "location" | "status" | "monthlyTargetCalls" | "monthlyTargetRevenue" | "ctcAnnual" | "avatarUrl">>) => void;
+  updateEmployee: (id: string, patch: Partial<Pick<User, "name" | "email" | "phone" | "departmentId" | "accessLevel" | "designation" | "managerId" | "employmentType" | "location" | "status" | "monthlyTargetCalls" | "monthlyTargetRevenue" | "ctcAnnual" | "avatarUrl" | "personalEmail" | "dateOfBirth" | "bloodGroup" | "address" | "emergencyContactName" | "emergencyContactPhone" | "emergencyContactRelation">>) => void;
+  // admin grants (or denies) feature access to a newly-onboarded employee
+  approveEmployee: (id: string, approve: boolean) => void;
   addDepartment: (input: NewDepartmentInput) => string;
   applyLeave: (input: NewLeaveInput) => void;
   decideLeave: (id: string, decision: "approved" | "rejected", note?: string) => void;
+  deleteLeave: (id: string) => void;
+  // ── company days (holiday / working-day / portal-issue calendar) ──
+  saveCompanyDay: (input: { id?: string; date: string; type: CompanyDayType; reason: string }) => void;
+  removeCompanyDay: (id: string) => void;
+  hydrateExtras: () => void;
   clockIn: (opts?: { photo?: string; coords?: { lat: number; lng: number }; timezone?: string; wfh?: boolean }) => Promise<boolean>;
   clockOut: () => void;
+  // admin: set/override attendance for anyone on a given date (present/absent, times)
+  setAttendance: (userId: string, date: string, patch: { status?: AttendanceStatus; checkIn?: string | null; checkOut?: string | null; note?: string }) => void;
+  // employee: flag an attendance issue (e.g. forgot to clock out) to the admins
+  requestAttendanceFix: (date: string, note?: string) => void;
   // ── meetings ──
   scheduleMeeting: (input: NewMeetingInput) => string;
   updateMeeting: (id: string, patch: Partial<Omit<Meeting, "id" | "organizerId" | "insights" | "minutes">>) => void;
@@ -204,6 +220,8 @@ interface AppState {
   createTask: (input: NewTaskInput) => string;
   addProject: (input: NewProjectInput) => string;
   updateProject: (id: string, patch: Partial<Project>) => void;
+  // admin verifies (or rejects) a project raised by a non-admin
+  decideProject: (id: string, approve: boolean, reason?: string) => void;
   createCampaign: (input: NewCampaignInput) => string;
   updateCampaign: (id: string, patch: Partial<Campaign>) => void;
   createContent: (input: NewContentInput) => string;
@@ -445,9 +463,42 @@ export const useApp = create<AppState>((rawSet, get) => {
       console.error("[store] hydrateData failed:", e);
     } finally {
       setPersistSuspended(false);
+      // Overlay browser-local extras (company days + personal ID-card fields)
+      // AFTER the Supabase load so they aren't overwritten by the fetched rows.
+      set((s) => ({ companyDays: readCompanyDays(), employees: applyPersonalExtras(s.employees) }));
       set({ dataReady: true });
     }
   },
+  hydrateExtras: () => {
+    set((s) => ({ companyDays: readCompanyDays(), employees: applyPersonalExtras(s.employees) }));
+  },
+  saveCompanyDay: (input) =>
+    set((s) => {
+      const id = input.id ?? nid("cday");
+      const existing = s.companyDays.find((d) => d.id === id);
+      const day: CompanyDay = {
+        id,
+        date: input.date,
+        type: input.type,
+        reason: input.reason.trim(),
+        createdBy: existing?.createdBy ?? s.actingUserId,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+      };
+      // one entry per date — replace any other entry sharing this date
+      const companyDays = [day, ...s.companyDays.filter((d) => d.id !== id && d.date !== input.date)]
+        .sort((a, b) => (a.date < b.date ? 1 : -1));
+      writeCompanyDays(companyDays);
+      const audit = pushAudit(s, { action: existing ? "update" : "create", entity: "company_day", entityId: id, entityLabel: `${input.type} · ${input.date}`, after: input.reason });
+      return { companyDays, audit: [audit, ...s.audit] };
+    }),
+  removeCompanyDay: (id) =>
+    set((s) => {
+      const day = s.companyDays.find((d) => d.id === id);
+      const companyDays = s.companyDays.filter((d) => d.id !== id);
+      writeCompanyDays(companyDays);
+      const audit = day ? pushAudit(s, { action: "delete", entity: "company_day", entityId: id, entityLabel: `${day.type} · ${day.date}` }) : undefined;
+      return audit ? { companyDays, audit: [audit, ...s.audit] } : { companyDays };
+    }),
   hydrateAuth: () => {
     const stored = readAuth();
     const u = stored ? get().employees.find((e) => e.id === stored) : undefined;
@@ -464,7 +515,7 @@ export const useApp = create<AppState>((rawSet, get) => {
       });
       const data = await res.json();
       if (!data.ok) return { ok: false, error: data.error ?? "Sign in failed." };
-      const u = data.user as User;
+      const u = elevate(data.user as User);
       // make sure the signed-in user is present in the employees slice
       set((s) => ({
         employees: s.employees.some((e) => e.id === u.id)
@@ -474,6 +525,7 @@ export const useApp = create<AppState>((rawSet, get) => {
       writeAuth(u.id);
       set({ authUserId: u.id, authReady: true, actingUserId: u.id, role: u.role, viewLens: u.accessLevel === "employee" ? u.departmentId : "management" });
       get().hydrateNav();
+      get().hydrateExtras(); // re-apply locally-saved personal ID-card fields
       return { ok: true, mustChangePassword: !!data.mustChangePassword };
     } catch {
       return { ok: false, error: "Sign in failed. Check your connection and try again." };
@@ -543,6 +595,7 @@ export const useApp = create<AppState>((rawSet, get) => {
   docDesigns: {},
   company: seedCompany,
   approvalRules: seedApprovalRules,
+  companyDays: [],
 
   moveStage: (leadId, to, reason) =>
     set((s) => {
@@ -901,6 +954,10 @@ export const useApp = create<AppState>((rawSet, get) => {
       loginUrl,
       sentAt: new Date().toISOString(),
     };
+    // A joiner added by anyone other than an admin needs admin approval before
+    // they get any feature access. Admin-created accounts are live immediately.
+    const creator = userById(get().actingUserId);
+    const approvalStatus: User["approvalStatus"] = creator?.accessLevel === "admin" ? "approved" : "pending";
     set((s) => {
       const monthly = input.monthlyCtc;
       const basic = Math.round(monthly * 0.5);
@@ -926,10 +983,20 @@ export const useApp = create<AppState>((rawSet, get) => {
         loginId,
         password: pwd,
         mustChangePassword: true,
+        approvalStatus,
       };
       const audit = pushAudit(s, { action: "create", entity: "employee", entityId: id, entityLabel: input.name, after: s.departments.find((d) => d.id === input.departmentId)?.name ?? input.accessLevel });
       const notify: AppNotification = { id: nid("N"), userId: id, kind: "system", title: "Welcome to Gradskills EMS", body: "Your login was emailed to you. Set a new password on first sign-in.", at: email.sentAt, read: false, href: "/account/password" };
-      return { employees: [emp, ...s.employees], audit: [audit, ...s.audit], credentialEmails: [email, ...s.credentialEmails], notifications: [notify, ...s.notifications] };
+      // when a manager onboards someone, ping every admin to approve their access
+      const adminNotifs: AppNotification[] = approvalStatus === "pending"
+        ? s.employees.filter((e) => e.accessLevel === "admin").map((a) => ({
+            id: nid("N"), userId: a.id, kind: "approval" as const,
+            title: "New employee needs approval",
+            body: `${input.name} was added by ${creator?.name ?? "a manager"} and is awaiting access approval.`,
+            at: email.sentAt, read: false, href: "/approvals",
+          }))
+        : [];
+      return { employees: [emp, ...s.employees], audit: [audit, ...s.audit], credentialEmails: [email, ...s.credentialEmails], notifications: [notify, ...adminNotifs, ...s.notifications] };
     });
     // Persist to the real users table (the server hashes the temp password),
     // then swap the temporary id for the DB-assigned numeric id. The write-through
@@ -940,7 +1007,7 @@ export const useApp = create<AppState>((rawSet, get) => {
           const res = await fetch("/api/employees", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...input, loginId, tempPassword: pwd }),
+            body: JSON.stringify({ ...input, loginId, tempPassword: pwd, approvalStatus }),
           });
           const data = await res.json();
           if (data?.ok && data.id) {
@@ -978,7 +1045,27 @@ export const useApp = create<AppState>((rawSet, get) => {
       const audit = pushAudit(s, { action: "update", entity: "employee", entityId: id, entityLabel: after.name, after: changes });
       // persist the updated columns to the (int-keyed) users table
       void persistUserUpdate(id, after);
+      // personal ID-card fields have no DB column yet — persist them locally so
+      // they survive reloads (see lib/localExtras.ts).
+      writePersonalExtra(id, patch);
       return { employees: s.employees.map((e) => (e.id === id ? after : e)), audit: [audit, ...s.audit] };
+    }),
+
+  approveEmployee: (id, approve) =>
+    set((s) => {
+      const emp = s.employees.find((e) => e.id === id);
+      if (!emp) return s;
+      const approvalStatus: User["approvalStatus"] = approve ? "approved" : "rejected";
+      const after = { ...emp, approvalStatus, status: approve ? (emp.status === "inactive" ? "active" : emp.status) : "inactive" as User["status"] };
+      const audit = pushAudit(s, { action: "approve", entity: "employee", entityId: id, entityLabel: emp.name, after: approve ? "Access approved" : "Access rejected" });
+      const notify: AppNotification = {
+        id: nid("N"), userId: id, kind: "system",
+        title: approve ? "Your account was approved" : "Access request declined",
+        body: approve ? "An admin approved your access — you can use all your features now." : "An admin declined your access. Please contact your admin.",
+        at: new Date().toISOString(), read: false, href: "/my",
+      };
+      void persistUserUpdate(id, after);
+      return { employees: s.employees.map((e) => (e.id === id ? after : e)), audit: [audit, ...s.audit], notifications: [notify, ...s.notifications] };
     }),
 
   addDepartment: (input) => {
@@ -1026,6 +1113,16 @@ export const useApp = create<AppState>((rawSet, get) => {
       };
     });
     void persistLeaveDecision(id, decision, get().actingUserId, note);
+  },
+
+  // Employee cancels their own leave request before it's decided. Only the
+  // owner may delete, and only while still pending — approved/rejected rows
+  // are an audit record and stay put.
+  deleteLeave: (id) => {
+    const lr = get().leaves.find((l) => l.id === id);
+    if (!lr || lr.userId !== get().actingUserId || lr.status !== "pending") return;
+    set((s) => ({ leaves: s.leaves.filter((l) => l.id !== id) }));
+    void persistLeaveDelete(id);
   },
 
   clockIn: async (opts) => {
@@ -1077,6 +1174,57 @@ export const useApp = create<AppState>((rawSet, get) => {
     });
     persistDay();
   },
+
+  // ── admin attendance override ──
+  // Set or correct a person's attendance for a date: mark present/absent/leave,
+  // or fix a check-in / check-out time they forgot. Persists via the shared
+  // attendance helper so the change survives a reload.
+  setAttendance: (userId, date, patch) => {
+    set((s) => {
+      const existing = s.attendance.find((a) => a.userId === userId && a.date === date);
+      const applyOne = (a: AttendanceRecord): AttendanceRecord => {
+        const next: AttendanceRecord = { ...a };
+        if (patch.status !== undefined) next.status = patch.status;
+        if (patch.checkIn !== undefined) next.checkIn = patch.checkIn ?? undefined;
+        if (patch.checkOut !== undefined) next.checkOut = patch.checkOut ?? undefined;
+        if (patch.note !== undefined) next.note = patch.note;
+        // keep workedMinutes consistent when both punches are present
+        if (next.checkIn && next.checkOut) next.workedMinutes = Math.max(0, Math.round((Date.parse(next.checkOut) - Date.parse(next.checkIn)) / 60000));
+        else next.workedMinutes = undefined;
+        return next;
+      };
+      let attendance: AttendanceRecord[];
+      if (existing) {
+        attendance = s.attendance.map((a) => (a === existing ? applyOne(a) : a));
+      } else {
+        const rec = applyOne({ id: nid("AT"), userId, date, status: patch.status ?? "present" });
+        attendance = [rec, ...s.attendance];
+      }
+      const audit = pushAudit(s, { action: "update", entity: "attendance", entityId: `${userId}:${date}`, entityLabel: `${userById(userId)?.name ?? userId} · ${date}`, after: patch.status ?? "edited times" });
+      return { attendance, audit: [audit, ...s.audit] };
+    });
+    const rec = get().attendance.find((a) => a.userId === userId && a.date === date);
+    if (rec) void persistAttendance(rec);
+  },
+
+  requestAttendanceFix: (date, note) =>
+    set((s) => {
+      const me = userById(s.actingUserId);
+      const admins = s.employees.filter((e) => e.accessLevel === "admin");
+      const at = new Date().toISOString();
+      const notifs: AppNotification[] = admins.map((a) => ({
+        id: nid("N"), userId: a.id, kind: "system" as const,
+        title: "Attendance fix requested",
+        body: `${me?.name ?? "An employee"} needs help with their attendance for ${date}${note ? ` — ${note}` : " (forgot to clock out)"}.`,
+        at, read: false, href: "/attendance",
+      }));
+      const mine: AppNotification = {
+        id: nid("N"), userId: s.actingUserId, kind: "system", title: "Request sent to admin",
+        body: `We've let your admin know about the ${date} attendance issue. They'll correct it for you.`,
+        at, read: false, href: "/my",
+      };
+      return { notifications: [...notifs, mine, ...s.notifications] };
+    }),
 
   // ── meetings ──
   scheduleMeeting: (input) => {
@@ -1256,6 +1404,9 @@ export const useApp = create<AppState>((rawSet, get) => {
   addProject: (input) => {
     const at = new Date().toISOString();
     const id = `PRJ-${++idc}`;
+    // Projects raised by anyone other than an admin wait for admin verification.
+    const creator = userById(get().actingUserId);
+    const approvalStatus: Project["approvalStatus"] = creator?.accessLevel === "admin" ? "approved" : "pending";
     set((s) => {
       const project: Project = {
         id,
@@ -1277,12 +1428,44 @@ export const useApp = create<AppState>((rawSet, get) => {
         progress: input.progress ?? 0,
         techStack: input.techStack,
         commits: [],
+        approvalStatus,
+        createdById: s.actingUserId,
       };
       const audit = pushAudit(s, { action: "create", entity: "project", entityId: id, entityLabel: input.name, after: userById(input.managerId ?? "")?.name });
-      return { projects: [project, ...s.projects], audit: [audit, ...s.audit] };
+      const adminNotifs: AppNotification[] = approvalStatus === "pending"
+        ? s.employees.filter((e) => e.accessLevel === "admin").map((a) => ({
+            id: nid("N"), userId: a.id, kind: "approval" as const,
+            title: "New project needs verification",
+            body: `${creator?.name ?? "An engineer"} raised “${input.name}” (${input.clientCompany}) — verify to make it live.`,
+            at, read: false, href: "/approvals",
+          }))
+        : [];
+      return { projects: [project, ...s.projects], audit: [audit, ...s.audit], notifications: [...adminNotifs, ...s.notifications] };
     });
     return id;
   },
+
+  decideProject: (id, approve, reason) =>
+    set((s) => {
+      const p = s.projects.find((x) => x.id === id);
+      if (!p) return s;
+      const approvalStatus: Project["approvalStatus"] = approve ? "approved" : "rejected";
+      const audit = pushAudit(s, { action: "approve", entity: "project", entityId: id, entityLabel: p.name, after: approve ? "Project approved" : `Rejected: ${reason ?? ""}` });
+      // notify the creator (and manager) of the decision
+      const recipients = new Set([p.createdById, p.managerId].filter(Boolean) as string[]);
+      const at = new Date().toISOString();
+      const notifs: AppNotification[] = [...recipients].map((uid) => ({
+        id: nid("N"), userId: uid, kind: "approval" as const,
+        title: approve ? "Project approved" : "Project rejected",
+        body: approve ? `“${p.name}” was approved and is now live.` : `“${p.name}” was rejected${reason ? ` — ${reason}` : ""}.`,
+        at, read: false, href: `/projects/${id}`,
+      }));
+      return {
+        projects: s.projects.map((x) => (x.id === id ? { ...x, approvalStatus, approvalReason: approve ? undefined : reason } : x)),
+        audit: [audit, ...s.audit],
+        notifications: [...notifs, ...s.notifications],
+      };
+    }),
 
   updateProject: (id, patch) =>
     set((s) => {

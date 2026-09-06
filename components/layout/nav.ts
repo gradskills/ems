@@ -81,6 +81,7 @@ export const navItems: NavItem[] = [
   { href: "/my", label: "My Dashboard", icon: LayoutDashboard, group: "overview", when: selfService, mobile: true },
   { href: "/my/profile", label: "My Profile", icon: CircleUser, group: "overview", when: selfService },
   { href: "/tasks", label: "My Tasks", icon: CheckSquare, group: "overview", when: selfService, mobile: true },
+  { href: "/my/leaves", label: "My Leaves", icon: CalendarCheck, group: "overview", when: (c) => c.accessLevel === "employee" },
   { href: "/performance", label: "My Performance", icon: TrendingUp, group: "overview", when: (c) => c.accessLevel === "employee" && c.features.has("leads") },
   { href: "/tickets", label: "Helpdesk", icon: LifeBuoy, group: "overview", when: selfService },
   { href: "/announcements", label: "Announcements", icon: Announce, group: "overview", when: selfService },
@@ -88,7 +89,9 @@ export const navItems: NavItem[] = [
   // ── Workspace: sales (BDA lens) ──
   { href: "/today", label: "Today", icon: Phone, group: "work", when: (c) => c.accessLevel === "employee" && c.features.has("leads"), mobile: true },
   { href: "/leads", label: "Leads", icon: Users, group: "work", when: isSales },
-  { href: "/meetings", label: "Meetings", icon: CalendarClock, group: "work", when: (c) => isMgrUp(c) || c.features.has("leads"), mobile: false },
+  // Meetings are cross-cutting — every role (BDA, tech, media, management) can
+  // schedule and be looped into meetings, so this shows in every workspace.
+  { href: "/meetings", label: "Meetings", icon: CalendarClock, group: "work", when: () => true, mobile: false },
   { href: "/explore", label: "Explore", icon: Compass, group: "work", when: isSales },
   { href: "/forms", label: "Forms", icon: ClipboardList, group: "work", when: isSales },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare, group: "work", when: isSales },

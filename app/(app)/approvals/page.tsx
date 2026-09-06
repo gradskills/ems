@@ -4,11 +4,12 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
+import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, Button } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
-import { visibleEmployees, leaveTypeLabel, auditReportColor, auditReportLabel } from "@/lib/ems";
+import { visibleEmployees, leaveTypeLabel, auditReportColor, auditReportLabel, roleLabel } from "@/lib/ems";
 import { formatDate } from "@/lib/utils";
-import { Check, X, CalendarCheck, FileText, FileSearch, CheckCircle2, Eye, Send } from "lucide-react";
+import { Check, X, CalendarCheck, FileText, FileSearch, CheckCircle2, Eye, Send, UserPlus, Code2 } from "lucide-react";
 
 export default function ApprovalsPage() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -16,6 +17,9 @@ export default function ApprovalsPage() {
   const leaves = useApp((s) => s.leaves);
   const proposals = useApp((s) => s.proposals);
   const auditReports = useApp((s) => s.auditReports);
+  const projects = useApp((s) => s.projects);
+  const approveEmployee = useApp((s) => s.approveEmployee);
+  const decideProject = useApp((s) => s.decideProject);
   const decideLeave = useApp((s) => s.decideLeave);
   const verifyProposal = useApp((s) => s.verifyProposal);
   const shareProposal = useApp((s) => s.shareProposal);
@@ -30,8 +34,12 @@ export default function ApprovalsPage() {
   const pendingLeaves = leaves.filter((l) => l.status === "pending" && visibleIds.has(l.userId) && l.userId !== me.id);
   const pendingProposals = proposals.filter((p) => p.reviewStatus === "internal_review" || (p.approval?.required && !p.approval.approvedBy));
   const pendingReports = auditReports.filter((r) => r.status === "pending_verification");
+  // access + project verification are admin-only decisions
+  const isAdmin = me.accessLevel === "admin";
+  const pendingEmployees = isAdmin ? employees.filter((e) => e.approvalStatus === "pending") : [];
+  const pendingProjects = isAdmin ? projects.filter((p) => p.approvalStatus === "pending") : [];
 
-  const total = pendingLeaves.length + pendingProposals.length + pendingReports.length;
+  const total = pendingLeaves.length + pendingProposals.length + pendingReports.length + pendingEmployees.length + pendingProjects.length;
 
   return (
     <div className="space-y-6">
@@ -39,6 +47,49 @@ export default function ApprovalsPage() {
 
       {total === 0 && (
         <Card className="flex flex-col items-center gap-2 py-16 text-center"><CheckCircle2 size={30} className="text-[var(--success)]" /><p className="text-sm text-[var(--muted)]">All clear — nothing needs approval.</p></Card>
+      )}
+
+      {pendingEmployees.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="flex items-center gap-2 text-sm font-semibold"><UserPlus size={16} /> New employees — grant access <Badge color="warning">{pendingEmployees.length}</Badge></h3>
+          {pendingEmployees.map((u) => {
+            const d = departmentById(u.departmentId);
+            return (
+              <Card key={u.id} className="flex items-center justify-between gap-3 p-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Link href={`/employees/${u.id}`}><Avatar name={u.name} size={34} src={u.avatarUrl} /></Link>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium"><Link href={`/employees/${u.id}`} className="hover:text-[var(--primary)]">{u.name}</Link></div>
+                    <div className="truncate text-xs text-[var(--muted)]">{roleLabel(u, d)} · {d?.name ?? "—"}{u.managerId ? ` · added under ${userById(u.managerId)?.name ?? ""}` : ""}</div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button size="sm" variant="success" onClick={() => approveEmployee(u.id, true)}><Check size={15} /> Approve</Button>
+                  <Button size="sm" variant="danger" onClick={() => approveEmployee(u.id, false)}><X size={15} /> Deny</Button>
+                </div>
+              </Card>
+            );
+          })}
+        </section>
+      )}
+
+      {pendingProjects.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="flex items-center gap-2 text-sm font-semibold"><Code2 size={16} /> Projects to verify <Badge color="warning">{pendingProjects.length}</Badge></h3>
+          {pendingProjects.map((p) => (
+            <Card key={p.id} className="flex items-center justify-between gap-3 p-4">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{p.name}</div>
+                <div className="truncate text-xs text-[var(--muted)]">{p.clientCompany}{p.createdById ? ` · raised by ${userById(p.createdById)?.name ?? ""}` : ""}</div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Link href={`/projects/${p.id}`}><Button size="sm" variant="outline"><Eye size={15} /> Preview</Button></Link>
+                <Button size="sm" variant="success" onClick={() => decideProject(p.id, true)}><Check size={15} /> Accept</Button>
+                <Button size="sm" variant="danger" onClick={() => decideProject(p.id, false, "Rejected at verification")}><X size={15} /> Reject</Button>
+              </div>
+            </Card>
+          ))}
+        </section>
       )}
 
       {pendingLeaves.length > 0 && (

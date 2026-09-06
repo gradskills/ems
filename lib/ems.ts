@@ -75,6 +75,19 @@ export function visibleEmployees(viewer: User, all: User[]): User[] {
   return all.filter((u) => u.id === viewer.id);
 }
 
+// ── projects ──
+// A project pending admin verification stays hidden from the wider team; only
+// admins (who approve it) and the people attached to it (creator/manager/member)
+// can see it until it goes live.
+export function isProjectVisible(viewer: User, p: { approvalStatus?: string; createdById?: string; managerId?: string; memberIds?: string[] }): boolean {
+  if (p.approvalStatus !== "pending" && p.approvalStatus !== "rejected") return true;
+  if (viewer.accessLevel === "admin") return true;
+  return p.createdById === viewer.id || p.managerId === viewer.id || (p.memberIds ?? []).includes(viewer.id);
+}
+export function visibleProjects<T extends { approvalStatus?: string; createdById?: string; managerId?: string; memberIds?: string[] }>(viewer: User, all: T[]): T[] {
+  return all.filter((p) => isProjectVisible(viewer, p));
+}
+
 // ── attendance ──
 export const attendanceLabel: Record<AttendanceStatus, string> = {
   present: "Present",

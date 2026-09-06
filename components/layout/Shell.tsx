@@ -12,7 +12,7 @@ import { AppShellSkeleton } from "@/components/ui/skeleton";
 import { ClockGate } from "@/components/ems/ClockGate";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
-import { ChevronsUpDown, Sparkles, Check, Bell, ChevronDown, Menu, KeyRound, LogOut } from "lucide-react";
+import { ChevronsUpDown, Sparkles, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // routes only managers/admin may open; employees are bounced to /my
@@ -124,6 +124,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // hold the app behind a skeleton until the session is resolved / redirect fires
   if (!authReady || !authUserId || employees.find((e) => e.id === authUserId)?.mustChangePassword) {
     return <AppShellSkeleton />;
+  }
+
+  // ── access-approval gate — a manager-onboarded joiner can sign in but has no
+  // feature access until an admin approves them. Admins are never gated. ──
+  if (user.accessLevel !== "admin" && user.approvalStatus === "pending") {
+    return <PendingApprovalScreen name={user.name} />;
   }
 
   return (
@@ -280,6 +286,32 @@ function NavGroup({ label, items, activeHref, collapsible, onNavClick }: { label
             </Link>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// Shown to a newly-onboarded employee whose access an admin hasn't approved yet.
+function PendingApprovalScreen({ name }: { name: string }) {
+  const router = useRouter();
+  const logout = useApp((s) => s.logout);
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--background)] p-4">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center shadow-[var(--shadow-lg)]">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--warning-soft)] text-[var(--warning)]">
+          <Hourglass size={28} />
+        </div>
+        <h1 className="text-lg font-bold tracking-tight">Welcome, {name.split(" ")[0]}</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Your account has been created and is waiting for an admin to approve your access.
+          You&apos;ll be able to use the app as soon as they do — please check back later or reach out to your admin.
+        </p>
+        <button
+          onClick={() => { logout(); router.replace("/login"); }}
+          className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-strong)] px-4 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+        >
+          <LogOut size={16} /> Sign out
+        </button>
       </div>
     </div>
   );

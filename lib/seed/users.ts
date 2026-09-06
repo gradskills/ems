@@ -77,6 +77,29 @@ export const users: User[] = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────
+// Super-users — accounts that always get full (admin) access in the app,
+// no matter what role the database stores for them. Used for the owner/test
+// account so it can reach every role's pages while building the product.
+// Elevation is applied on every load (seed + DB hydrate + login), so it sticks
+// even though the database keeps their real (lower) role.
+// ─────────────────────────────────────────────────────────────
+export const SUPER_ADMIN_LOGINS = new Set(["nizmanvith@gmail.com", "nizmanvith"]);
+
+export function isSuperAdmin(u: Pick<User, "email" | "loginId"> | undefined): boolean {
+  if (!u) return false;
+  return SUPER_ADMIN_LOGINS.has((u.email ?? "").toLowerCase()) || SUPER_ADMIN_LOGINS.has((u.loginId ?? "").toLowerCase());
+}
+
+/** Force a super-user up to admin access (and mark them approved). Idempotent. */
+export function elevate(u: User): User {
+  if (!isSuperAdmin(u)) return u;
+  return { ...u, accessLevel: "admin", role: "admin", approvalStatus: "approved", status: u.status === "inactive" ? "active" : u.status };
+}
+
+// Apply elevation to the baseline list so pre-login/seed rendering is correct too.
+for (let i = 0; i < users.length; i++) users[i] = elevate(users[i]);
+
 // Default acting user before login (a founder/admin); real session comes from login.
 export const CURRENT_BDA_ID = "7";  // Manvith
 export const CURRENT_ADMIN_ID = "1"; // Abhijeet
@@ -84,11 +107,12 @@ export const CURRENT_ADMIN_ID = "1"; // Abhijeet
 /**
  * Replace the in-memory user registry with the live list from the database.
  * Mutates the exported `users` array in place so live ES-module bindings and
- * all `userById()` call sites immediately see the fresh data.
+ * all `userById()` call sites immediately see the fresh data. Super-users are
+ * elevated to admin access on the way in.
  */
 export function setUsers(fresh: User[]): void {
   if (!fresh.length) return;
-  users.splice(0, users.length, ...fresh);
+  users.splice(0, users.length, ...fresh.map(elevate));
 }
 
 export function userById(id: string): User | undefined {

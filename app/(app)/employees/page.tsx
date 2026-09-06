@@ -15,11 +15,17 @@ import { ChevronRight, Plus, Users, UserCog, Download } from "lucide-react";
 
 export default function EmployeesPage() {
   const actingUserId = useApp((s) => s.actingUserId);
+  const viewLens = useApp((s) => s.viewLens);
   const employees = useApp((s) => s.employees);
   const departments = useApp((s) => s.departments);
   const attendance = useApp((s) => s.attendance);
   const tasks = useApp((s) => s.tasks);
   const viewer = userById(actingUserId)!;
+
+  // When a manager/admin drills into a department lens, this page shows only that
+  // department's people — so the BDA lens lists BDAs, not the whole company.
+  const lensDept = viewLens !== "management" ? viewLens : null;
+  const lensDeptName = lensDept ? departments.find((d) => d.id === lensDept)?.name : null;
 
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("all");
@@ -27,7 +33,8 @@ export default function EmployeesPage() {
 
   const scoped = useMemo(() => {
     let list = visibleEmployees(viewer, employees);
-    if (dept !== "all") list = list.filter((u) => u.departmentId === dept);
+    if (lensDept) list = list.filter((u) => u.departmentId === lensDept);
+    else if (dept !== "all") list = list.filter((u) => u.departmentId === dept);
     if (q) {
       const s = q.toLowerCase();
       list = list.filter(
@@ -35,7 +42,7 @@ export default function EmployeesPage() {
       );
     }
     return list;
-  }, [viewer, employees, departments, dept, q]);
+  }, [viewer, employees, departments, dept, q, lensDept]);
 
   const canManage = viewer.accessLevel !== "employee";
   const canSeePay = viewer.accessLevel !== "employee";
@@ -58,8 +65,8 @@ export default function EmployeesPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Employees"
-        subtitle={`${scoped.length} people${viewer.accessLevel === "manager" ? " in your team" : " across the org"}`}
+        title={lensDeptName ? `${lensDeptName} — Employees` : "Employees"}
+        subtitle={`${scoped.length} people${lensDeptName ? ` in ${lensDeptName}` : viewer.accessLevel === "manager" ? " in your team" : " across the org"}`}
         action={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={exportCSV} disabled={!scoped.length}><Download size={16} /> Export</Button>
@@ -73,23 +80,25 @@ export default function EmployeesPage() {
           <div className="flex-1">
             <SearchInput value={q} onChange={setQ} placeholder="Search name, role, email…" />
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            <button
-              onClick={() => setDept("all")}
-              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${dept === "all" ? "bg-[var(--primary)] text-white" : "bg-[var(--surface-2)] text-[var(--muted)] hover:bg-[var(--border)]"}`}
-            >
-              All
-            </button>
-            {departments.map((d) => (
+          {!lensDept && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               <button
-                key={d.id}
-                onClick={() => setDept(d.id)}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${dept === d.id ? "bg-[var(--primary)] text-white" : "bg-[var(--surface-2)] text-[var(--muted)] hover:bg-[var(--border)]"}`}
+                onClick={() => setDept("all")}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${dept === "all" ? "bg-[var(--primary)] text-white" : "bg-[var(--surface-2)] text-[var(--muted)] hover:bg-[var(--border)]"}`}
               >
-                {d.name}
+                All
               </button>
-            ))}
-          </div>
+              {departments.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => setDept(d.id)}
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${dept === d.id ? "bg-[var(--primary)] text-white" : "bg-[var(--surface-2)] text-[var(--muted)] hover:bg-[var(--border)]"}`}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </Card>
 
@@ -132,9 +141,15 @@ export default function EmployeesPage() {
                 </td>
                 <td className="px-4 py-3 text-xs text-[var(--muted)]">{mgr ? mgr.name : "—"}</td>
                 <td className="px-4 py-3">
-                  <Badge color={u.status === "active" ? "success" : u.status === "on_leave" ? "warning" : "slate"} dot>
-                    {u.status === "on_leave" ? "On leave" : u.status ?? "active"}
-                  </Badge>
+                  {u.approvalStatus === "pending" ? (
+                    <Badge color="warning" dot>Pending approval</Badge>
+                  ) : u.approvalStatus === "rejected" ? (
+                    <Badge color="danger" dot>Access denied</Badge>
+                  ) : (
+                    <Badge color={u.status === "active" ? "success" : u.status === "on_leave" ? "warning" : "slate"} dot>
+                      {u.status === "on_leave" ? "On leave" : u.status ?? "active"}
+                    </Badge>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">

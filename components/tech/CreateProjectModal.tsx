@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp, type NewProjectInput } from "@/lib/store";
+import { userById } from "@/lib/seed/users";
 import { Modal, Field, Input, Textarea } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
 import { projectStatusLabel } from "@/lib/ems";
+import { Info } from "lucide-react";
 import type { ProjectStatus, TaskPriority } from "@/lib/types";
 
 const statuses: ProjectStatus[] = ["planning", "active", "on_hold", "completed", "cancelled"];
@@ -14,6 +16,8 @@ const priorities: TaskPriority[] = ["low", "medium", "high", "urgent"];
 export function CreateProjectModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const addProject = useApp((s) => s.addProject);
   const employees = useApp((s) => s.employees);
+  const actingUserId = useApp((s) => s.actingUserId);
+  const needsApproval = userById(actingUserId)?.accessLevel !== "admin";
   const router = useRouter();
 
   const [f, setF] = useState<NewProjectInput>({
@@ -84,10 +88,16 @@ export function CreateProjectModal({ open, onClose }: { open: boolean; onClose: 
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button disabled={!valid} onClick={save} className={errCls("")}>Create project</Button>
+          <Button disabled={!valid} onClick={save} className={errCls("")}>{needsApproval ? "Submit for approval" : "Create project"}</Button>
         </>
       }
     >
+      {needsApproval && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg bg-[var(--warning-soft)] px-3 py-2.5 text-xs text-[var(--warning)]">
+          <Info size={15} className="mt-0.5 shrink-0" />
+          <span>New projects are sent to an admin for verification. It will show as “Pending approval” and go live once an admin accepts it.</span>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Field label="Project name *"><Input value={f.name} onChange={(e) => { set({ name: e.target.value }); setErrors((p) => ({ ...p, name: false })); }} placeholder="Acme — E-commerce Store" autoFocus className={errCls("name")} /></Field>

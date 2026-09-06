@@ -30,6 +30,8 @@ export async function POST(req: Request) {
     manager_id: b.managerId ? Number(b.managerId) : null,
     designation: b.designation ?? null,
     status: "active",
+    // Manager-created joiners start unapproved; an admin grants feature access.
+    approval_status: b.approvalStatus === "pending" ? "pending" : "approved",
     employment_type: b.employmentType ?? "full_time",
     location: b.location ?? null,
     ctc_annual: monthly * 12,

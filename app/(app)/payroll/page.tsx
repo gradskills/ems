@@ -45,11 +45,11 @@ export default function PayrollPage() {
         title="Payroll"
         subtitle={`${rows.length} payslips · ${monthLabel(month)}`}
         action={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={16} /> Export</Button>
-            <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm sm:flex-none">
               {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
             </select>
+            <Button variant="outline" onClick={exportCSV} disabled={!rows.length} className="shrink-0"><Download size={16} /> Export</Button>
           </div>
         }
       />

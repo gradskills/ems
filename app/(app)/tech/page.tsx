@@ -3,17 +3,22 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
+import { userById } from "@/lib/seed/users";
 import { Card, Badge, Avatar, ProgressBar, SectionTitle, Stat } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
-import { projectStatusColor, projectStatusLabel } from "@/lib/ems";
+import { projectStatusColor, projectStatusLabel, visibleProjects } from "@/lib/ems";
 import { Code2, GitCommit, ChevronRight, CheckSquare } from "lucide-react";
 
 export default function TechDashboardPage() {
   const projects = useApp((s) => s.projects);
   const tasks = useApp((s) => s.tasks);
   const employees = useApp((s) => s.employees);
+  const actingUserId = useApp((s) => s.actingUserId);
 
-  const techProjects = projects.filter((p) => p.departmentId === "dept-tech");
+  const techProjects = useMemo(() => {
+    const me = userById(actingUserId);
+    return (me ? visibleProjects(me, projects) : projects).filter((p) => p.departmentId === "dept-tech");
+  }, [projects, actingUserId]);
   const techTasks = tasks.filter((t) => t.departmentId === "dept-tech");
   const team = employees.filter((u) => u.departmentId === "dept-tech");
 

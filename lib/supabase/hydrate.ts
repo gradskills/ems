@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────
 import { getSupabase } from "@/lib/supabase/client";
 import { userToApp, attendanceToApp, leaveToApp, genericToApp, genericToRow } from "@/lib/supabase/map";
-import { setUsers } from "@/lib/seed/users";
+import { setUsers, elevate } from "@/lib/seed/users";
 import type { User } from "@/lib/types";
 
 import { leads as seedLeads } from "@/lib/seed/leads";
@@ -91,7 +91,7 @@ const USER_COLS =
   "id,name,email,phone_number,role,access_level,department_id,manager_id,status," +
   "employment_type,location,avatar_color,avatar_url,monthly_target_calls,monthly_target_revenue," +
   "ctc_annual,salary,bank_last4,leave_balance,login_id,must_change_password," +
-  "designation,employee_id,onboarding_date,created_at"; // deliberately excludes password_hash
+  "approval_status,designation,employee_id,onboarding_date,created_at"; // deliberately excludes password_hash
 
 export interface HydratedData {
   employees: User[];
@@ -110,7 +110,7 @@ export async function hydrateAll(): Promise<HydratedData | null> {
     // ── users (source of truth for people) ──
     const { data: userRows, error: uErr } = await sb.from("users").select(USER_COLS);
     if (uErr) throw uErr;
-    const employees = (userRows ?? []).map((r) => userToApp(r as unknown as Record<string, unknown>));
+    const employees = (userRows ?? []).map((r) => elevate(userToApp(r as unknown as Record<string, unknown>)));
     employees.sort((a, b) => Number(a.id) - Number(b.id));
     setUsers(employees); // keep the sync userById() registry fresh
 

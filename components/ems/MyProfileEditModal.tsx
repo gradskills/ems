@@ -106,6 +106,14 @@ export function MyProfileEditModal({ open, onClose, employee }: { open: boolean;
   const [name, setName] = useState(employee.name);
   const [phone, setPhone] = useState(employee.phone);
   const [location, setLocation] = useState(employee.location ?? "");
+  // personal details — surfaced on the ID card
+  const [personalEmail, setPersonalEmail] = useState(employee.personalEmail ?? "");
+  const [dateOfBirth, setDateOfBirth] = useState(employee.dateOfBirth ?? "");
+  const [bloodGroup, setBloodGroup] = useState(employee.bloodGroup ?? "");
+  const [address, setAddress] = useState(employee.address ?? "");
+  const [ecName, setEcName] = useState(employee.emergencyContactName ?? "");
+  const [ecPhone, setEcPhone] = useState(employee.emergencyContactPhone ?? "");
+  const [ecRelation, setEcRelation] = useState(employee.emergencyContactRelation ?? "");
 
   useEffect(() => {
     if (open) {
@@ -113,6 +121,13 @@ export function MyProfileEditModal({ open, onClose, employee }: { open: boolean;
       setName(employee.name);
       setPhone(employee.phone);
       setLocation(employee.location ?? "");
+      setPersonalEmail(employee.personalEmail ?? "");
+      setDateOfBirth(employee.dateOfBirth ?? "");
+      setBloodGroup(employee.bloodGroup ?? "");
+      setAddress(employee.address ?? "");
+      setEcName(employee.emergencyContactName ?? "");
+      setEcPhone(employee.emergencyContactPhone ?? "");
+      setEcRelation(employee.emergencyContactRelation ?? "");
     }
   }, [open, employee]);
 
@@ -125,9 +140,18 @@ export function MyProfileEditModal({ open, onClose, employee }: { open: boolean;
       phone: phone.trim(),
       location: location.trim() || undefined,
       avatarUrl,
+      personalEmail: personalEmail.trim() || undefined,
+      dateOfBirth: dateOfBirth || undefined,
+      bloodGroup: bloodGroup.trim() || undefined,
+      address: address.trim() || undefined,
+      emergencyContactName: ecName.trim() || undefined,
+      emergencyContactPhone: ecPhone.trim() || undefined,
+      emergencyContactRelation: ecRelation.trim() || undefined,
     });
     onClose();
   }
+
+  const bloodGroups = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
   return (
     <Modal
@@ -153,6 +177,35 @@ export function MyProfileEditModal({ open, onClose, employee }: { open: boolean;
           </Field>
           <Field label="Phone"><Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 98765 43210" /></Field>
           <Field label="Location"><Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Mumbai" /></Field>
+        </div>
+
+        <div className="border-t border-[var(--border)] pt-4">
+          <h4 className="mb-1 text-sm font-semibold">Personal details</h4>
+          <p className="mb-3 text-xs text-[var(--muted-2)]">Shown on your digital ID card.</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Personal email"><Input type="email" value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} placeholder="you@example.com" /></Field>
+            <Field label="Date of birth"><Input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} /></Field>
+            <Field label="Blood group">
+              <select
+                value={bloodGroup}
+                onChange={(e) => setBloodGroup(e.target.value)}
+                className="h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]"
+              >
+                <option value="">Select…</option>
+                {bloodGroups.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </Field>
+            <Field label="Home address"><Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. Andheri East, Mumbai" /></Field>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="mb-3 text-sm font-semibold">Emergency contact</h4>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Field label="Name"><Input value={ecName} onChange={(e) => setEcName(e.target.value)} placeholder="Full name" /></Field>
+            <Field label="Relationship"><Input value={ecRelation} onChange={(e) => setEcRelation(e.target.value)} placeholder="e.g. Father" /></Field>
+            <Field label="Phone"><Input value={ecPhone} onChange={(e) => setEcPhone(e.target.value)} placeholder="e.g. 98765 43210" /></Field>
+          </div>
         </div>
       </div>
     </Modal>
