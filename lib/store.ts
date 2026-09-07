@@ -1098,6 +1098,33 @@ export const useApp = create<AppState>((rawSet, get) => {
       return { leaves: [lr, ...s.leaves], notifications: notify };
     });
     void persistLeaveApply(lr);
+    // Notify the approvers (the applicant's manager + all admins) by email.
+    if (typeof window !== "undefined") {
+      const s = get();
+      const me = userById(s.actingUserId);
+      const approvers = s.employees.filter(
+        (e) => (me?.managerId && e.id === me.managerId) || e.accessLevel === "admin"
+      );
+      const to = Array.from(new Set(approvers.map((a) => a.email).filter(Boolean))) as string[];
+      if (to.length) {
+        const range = input.from === input.to ? input.from : `${input.from} → ${input.to}`;
+        const body =
+          `${me?.name ?? "An employee"} has requested leave and it's awaiting your approval.\n\n` +
+          `Type: ${input.type}\nDates: ${range} (${input.days} day${input.days === 1 ? "" : "s"})\n` +
+          `Reason: ${input.reason || "—"}\n\n` +
+          `Review it in Gradskills EMS → Leaves.`;
+        void fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to,
+            subject: `Leave request from ${me?.name ?? "an employee"}`,
+            text: body,
+            replyTo: me?.email || undefined,
+          }),
+        }).catch(() => { /* email is best-effort; the in-app notification already fired */ });
+      }
+    }
   },
 
   decideLeave: (id, decision, note) => {

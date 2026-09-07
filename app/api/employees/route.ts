@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { sendEmail, renderEmailHtml } from "@/lib/email/send";
 
 // POST /api/employees — create a new employee (user) with a hashed password.
 // Body: the fields the onboarding modal collects plus the generated loginId +
@@ -50,5 +51,32 @@ export async function POST(req: Request) {
   // stamp a readable employee code now that we know the id
   await sb.from("users").update({ employee_id: `EMP-${id}` }).eq("id", id);
 
-  return NextResponse.json({ ok: true, id: String(id), employeeId: `EMP-${id}` });
+  // ── email the new joiner their login credentials (best-effort) ──
+  // The plaintext temp password only exists here, server-side; it never goes
+  // to the browser. If email isn't configured the send is a graceful no-op.
+  const toEmail = String(b.email ?? "").trim();
+  const loginId = String(b.loginId ?? "");
+  const name = String(b.name ?? "there");
+  const origin = req.headers.get("origin") || new URL(req.url).origin;
+  const loginUrl = `${origin}/login`;
+  let emailSent = false;
+  if (toEmail && tempPassword) {
+    const body =
+      `Hi ${name.split(" ")[0] || name},\n\n` +
+      `Your Gradskills EMS account is ready. Sign in with the credentials below and set a new password on first login.\n\n` +
+      `Login page: ${loginUrl}\n` +
+      `Login ID: ${loginId}\n` +
+      `Temporary password: ${tempPassword}\n\n` +
+      `For your security, please change this password right after signing in.`;
+    const r = await sendEmail({
+      to: toEmail,
+      subject: "Your Gradskills EMS login",
+      text: body,
+      html: renderEmailHtml({ heading: "Welcome to Gradskills EMS", body, footer: "If you didn't expect this, please ignore this email." }),
+    });
+    emailSent = r.ok;
+    if (!r.ok && !r.skipped) console.warn("[employees] credential email failed:", r.error);
+  }
+
+  return NextResponse.json({ ok: true, id: String(id), employeeId: `EMP-${id}`, emailSent });
 }
