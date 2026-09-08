@@ -69,6 +69,7 @@ export interface User {
   avatarColor?: string;
   avatarUrl?: string; // profile photo — a compressed data URI (prototype) or hosted URL
   teamId?: string;
+  shiftId?: string; // assigned work shift (see Shift) — admin-managed
   monthlyTargetCalls?: number;
   monthlyTargetRevenue?: number;
   // ── HR / payroll ──
@@ -453,6 +454,20 @@ export type AttendanceStatus =
   // ── statuses that come from the real attendance backend ──
   | "needs_review"      // punch-in without a valid punch-out, flagged for admin
   | "pending_punchout"; // clocked in, not yet clocked out
+
+// ── Work shifts ─────────────────────────────────────────────
+// Admin-defined time windows (e.g. "General 9–6", "Night 10pm–7am"). Employees
+// and managers are assigned a shift; the clock-in/out reminders default to the
+// shift's start/end times. `days` are weekday numbers (0=Sun … 6=Sat).
+export interface Shift {
+  id: string;
+  name: string;
+  startTime: string; // "HH:mm" 24-hour, local
+  endTime: string;   // "HH:mm" — may be < startTime for overnight shifts
+  days: number[];    // working weekdays, 0=Sun … 6=Sat
+  color: "slate" | "primary" | "success" | "warning" | "danger" | "info" | "purple";
+  system?: boolean;  // built-in, cannot be deleted
+}
 
 export type BreakType = "tea" | "snacks" | "lunch" | "casual";
 

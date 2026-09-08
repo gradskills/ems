@@ -10,13 +10,17 @@ import { PageHeader, TableShell } from "@/components/ems/kit";
 import { visibleEmployees, payslipTotals, monthLabel } from "@/lib/ems";
 import { downloadCSV, downloadPayslip } from "@/lib/exports";
 import { inr } from "@/lib/utils";
-import { Download } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
+import type { PayslipStatus } from "@/lib/types";
 
 export default function PayrollPage() {
   const actingUserId = useApp((s) => s.actingUserId);
   const employees = useApp((s) => s.employees);
   const payslips = useApp((s) => s.payslips);
+  const updatePayslip = useApp((s) => s.updatePayslip);
+  const deletePayslip = useApp((s) => s.deletePayslip);
   const viewer = userById(actingUserId)!;
+  const isAdmin = viewer.accessLevel === "admin";
 
   const months = useMemo(() => Array.from(new Set(payslips.map((p) => p.month))).sort().reverse(), [payslips]);
   const [month, setMonth] = useState(months[0] ?? "");
@@ -79,11 +83,36 @@ export default function PayrollPage() {
                 <td className="px-4 py-3">{inr(t.earnings)}</td>
                 <td className="px-4 py-3 text-[var(--muted)]">−{inr(t.deductions)}</td>
                 <td className="px-4 py-3 font-semibold">{inr(t.net)}</td>
-                <td className="px-4 py-3"><Badge color={p.status === "paid" ? "success" : p.status === "processed" ? "info" : "slate"} dot>{p.status}</Badge></td>
-                <td className="px-4 py-3 text-right">
-                  <button onClick={() => downloadPayslip(p, u)} title="Download payslip PDF" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]">
-                    <Download size={16} />
-                  </button>
+                <td className="px-4 py-3">
+                  {isAdmin ? (
+                    <select
+                      value={p.status}
+                      onChange={(e) => updatePayslip(p.id, { status: e.target.value as PayslipStatus })}
+                      className="h-8 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs"
+                    >
+                      <option value="draft">draft</option>
+                      <option value="processed">processed</option>
+                      <option value="paid">paid</option>
+                    </select>
+                  ) : (
+                    <Badge color={p.status === "paid" ? "success" : p.status === "processed" ? "info" : "slate"} dot>{p.status}</Badge>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => downloadPayslip(p, u)} title="Download payslip PDF" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]">
+                      <Download size={16} />
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => { if (window.confirm(`Delete ${u?.name ?? "this"}'s ${monthLabel(p.month)} payslip?`)) deletePayslip(p.id); }}
+                        title="Delete payslip"
+                        className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );

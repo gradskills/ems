@@ -2,32 +2,45 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, notFound } from "next/navigation";
+import { useParams, notFound, useRouter } from "next/navigation";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Card, Button, Badge, Avatar } from "@/components/ui/primitives";
 import { Textarea } from "@/components/ui/modal";
+import { ScheduleMeetingModal } from "@/components/ems/ScheduleMeetingModal";
 import { relativeTime } from "@/lib/utils";
 import { meetingStatusColor, meetingStatusLabel, meetingModeLabel, formatMeetingWhen } from "@/lib/meetings";
 import type { MeetingNote } from "@/lib/types";
-import { Video, MapPin, Phone, ArrowLeft, Users, Building2, Lightbulb, NotebookPen, Play, Check, X, Clock, Link2 } from "lucide-react";
+import { Video, MapPin, Phone, ArrowLeft, Users, Building2, Lightbulb, NotebookPen, Play, Check, X, Clock, Link2, Pencil, Trash2 } from "lucide-react";
 
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const meetings = useApp((s) => s.meetings);
   const leads = useApp((s) => s.leads);
   const actingUserId = useApp((s) => s.actingUserId);
   const addMeetingNote = useApp((s) => s.addMeetingNote);
   const setMeetingStatus = useApp((s) => s.setMeetingStatus);
+  const deleteMeeting = useApp((s) => s.deleteMeeting);
+  const [editing, setEditing] = useState(false);
 
   const m = meetings.find((x) => x.id === params.id);
   if (!m) return notFound();
 
+  const me = userById(actingUserId);
   const lead = m.leadId ? leads.find((l) => l.id === m.leadId) : undefined;
-  const organizer = userById(m.organizerId);
   const ModeIcon = m.mode === "video" ? Video : m.mode === "phone" ? Phone : MapPin;
   const isPast = m.status === "completed" || m.status === "cancelled";
   const canEditNotes = m.status !== "cancelled";
+  // organizer or any manager/admin can edit / delete the meeting itself
+  const canManage = m.organizerId === actingUserId || (me?.accessLevel !== "employee");
+
+  function remove() {
+    if (window.confirm("Delete this meeting? This can't be undone.")) {
+      deleteMeeting(m!.id);
+      router.push("/meetings");
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -71,6 +84,8 @@ export default function MeetingDetailPage() {
             {m.status === "in_progress" && <Button size="sm" variant="success" onClick={() => setMeetingStatus(m.id, "completed")}><Check size={14} /> Complete</Button>}
             {!isPast && <Button size="sm" variant="ghost" onClick={() => setMeetingStatus(m.id, "cancelled")}><X size={14} /> Cancel</Button>}
             {m.status === "cancelled" && <Button size="sm" variant="outline" onClick={() => setMeetingStatus(m.id, "scheduled")}>Reinstate</Button>}
+            {canManage && <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil size={14} /> Edit</Button>}
+            {canManage && <Button size="sm" variant="ghost" onClick={remove} className="text-[var(--danger)]"><Trash2 size={14} /> Delete</Button>}
           </div>
         </div>
 
@@ -135,6 +150,8 @@ export default function MeetingDetailPage() {
           />
         </div>
       </div>
+
+      <ScheduleMeetingModal open={editing} onClose={() => setEditing(false)} editId={m.id} />
     </div>
   );
 

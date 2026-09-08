@@ -7,6 +7,7 @@ import { userById } from "@/lib/seed/users";
 import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, Button, Stat, ProgressBar } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
+import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
 import { visibleEmployees, leaveTypeLabel, priorityColor, taskStatusColor, taskStatusLabel, auditReportColor, auditReportLabel } from "@/lib/ems";
 import { formatDate } from "@/lib/utils";
 import { Check, X, CalendarCheck, FileText, FileSearch, Users, AlertTriangle, ArrowRight, ClipboardList } from "lucide-react";
@@ -56,6 +57,8 @@ export default function OverviewPage() {
         subtitle={me.accessLevel === "admin" ? "Organisation overview" : "Your team overview"}
         action={totalActions > 0 && <Link href="/approvals"><Button><Check size={16} /> {totalActions} to action</Button></Link>}
       />
+
+      <BirthdayBanner />
 
       {/* People snapshot */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

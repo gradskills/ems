@@ -10,6 +10,7 @@ import { navFor, mobileNavFor, workspaceLabel } from "./nav";
 import { Avatar } from "@/components/ui/primitives";
 import { AppShellSkeleton } from "@/components/ui/skeleton";
 import { ClockGate } from "@/components/ems/ClockGate";
+import { ClockReminderRunner } from "@/components/ems/ClockReminderRunner";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { ChevronsUpDown, Sparkles, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass } from "lucide-react";
@@ -19,7 +20,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // /overview is a management landing (renders "Your team overview" for managers,
 // "Organisation overview" for admin) — manager+admin, not admin-only.
 const MGR_ROUTES = ["/overview", "/employees", "/leaves", "/attendance", "/payroll", "/approvals", "/reports", "/audit"];
-const ADMIN_ROUTES = ["/departments", "/settings"];
+const ADMIN_ROUTES = ["/departments", "/settings", "/shifts"];
 
 // Explicit ordering for the management-lens (admin/manager) workspace section, so
 // it reads: My Dashboard · My Tasks · Meetings · Who's In · Announcements · Helpdesk.
@@ -135,6 +136,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[var(--background)]">
       <ClockGate />
+      <ClockReminderRunner />
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-[var(--border)] bg-[var(--surface)] lg:flex">
         <SidebarContent {...sidebarProps} />

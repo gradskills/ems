@@ -104,6 +104,28 @@ export default function AttendancePage() {
   const count = (k: string) => withToday.filter((r) => r.st.key === k).length;
   const inToday = withToday.filter((r) => r.st.key !== "notin").length;
 
+  // Admin: past days an employee couldn't finish — clocked in but never clocked
+  // out, or the backend flagged the punch for review. These are exactly the days
+  // employees ask admins to fix via "Contact admin". We key them by employee so
+  // each attendance row can show a "needs review" mark beside its edit pencil,
+  // and the editor can list every pending day for that person (latest first).
+  const reviewByUser = useMemo(() => {
+    const m = new Map<string, AttendanceRecord[]>();
+    if (!isAdmin) return m;
+    for (const a of attendance) {
+      if (
+        a.date < today &&
+        ((a.checkIn && !a.checkOut) || a.status === "needs_review" || a.status === "pending_punchout")
+      ) {
+        const arr = m.get(a.userId) ?? [];
+        arr.push(a);
+        m.set(a.userId, arr);
+      }
+    }
+    for (const arr of m.values()) arr.sort((x, y) => (x.date < y.date ? 1 : -1));
+    return m;
+  }, [isAdmin, attendance, today]);
+
   // department options limited to those that actually have people in view
   const deptOptions = useMemo(() => {
     const ids = new Set(people.map((p) => p.departmentId));
@@ -295,6 +317,12 @@ export default function AttendancePage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {isAdmin && (() => { const rv = reviewByUser.get(u.id); return rv?.length ? (
+                            <button onClick={() => setEditTarget({ user: u, date: rv[0].date })} title={`${rv.length} day${rv.length > 1 ? "s" : ""} need review — forgot to clock out`} className="relative rounded-md p-1.5 text-[var(--warning)] hover:bg-[var(--warning-soft)]">
+                              <AlertTriangle size={15} />
+                              {rv.length > 1 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--warning)] px-1 text-[10px] font-bold leading-none text-white">{rv.length}</span>}
+                            </button>
+                          ) : null; })()}
                           {isAdmin && (
                             <button onClick={() => setEditTarget({ user: u, date: today })} title="Edit attendance" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]">
                               <Pencil size={15} />
@@ -354,6 +382,12 @@ export default function AttendancePage() {
                       <td className="px-4 py-3 text-xs">{workedMin ? `${Math.floor(workedMin / 60)}h ${workedMin % 60}m` : "—"}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {isAdmin && (() => { const rv = reviewByUser.get(u.id); return rv?.length ? (
+                            <button onClick={() => setEditTarget({ user: u, date: rv[0].date })} title={`${rv.length} day${rv.length > 1 ? "s" : ""} need review — forgot to clock out`} className="relative rounded-md p-1.5 text-[var(--warning)] hover:bg-[var(--warning-soft)]">
+                              <AlertTriangle size={15} />
+                              {rv.length > 1 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--warning)] px-1 text-[10px] font-bold leading-none text-white">{rv.length}</span>}
+                            </button>
+                          ) : null; })()}
                           {isAdmin && (
                             <button onClick={() => setEditTarget({ user: u, date: today })} title="Edit today's attendance" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--primary)]">
                               <Pencil size={15} />

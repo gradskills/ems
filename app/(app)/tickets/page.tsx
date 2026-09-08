@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ems/kit";
 import { Modal, Field, Input, Textarea } from "@/components/ui/modal";
 import { ticketStatusColor, priorityColor } from "@/lib/ems";
 import { relativeTime } from "@/lib/utils";
-import { Plus, LifeBuoy } from "lucide-react";
+import { Plus, LifeBuoy, Pencil, Trash2 } from "lucide-react";
 import type { TaskPriority, TicketStatus } from "@/lib/types";
 
 const selectCls = "h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]";
@@ -18,10 +18,13 @@ export default function TicketsPage() {
   const tickets = useApp((s) => s.tickets);
   const createTicket = useApp((s) => s.createTicket);
   const setTicketStatus = useApp((s) => s.setTicketStatus);
+  const updateTicket = useApp((s) => s.updateTicket);
+  const deleteTicket = useApp((s) => s.deleteTicket);
   const me = userById(actingUserId)!;
   const isSupport = me.departmentId === "dept-admin" || me.accessLevel === "admin";
 
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("IT");
@@ -30,14 +33,27 @@ export default function TicketsPage() {
   const mine = tickets.filter((t) => t.raisedById === me.id);
   const assigned = tickets.filter((t) => isSupport && t.assigneeId === me.id && t.raisedById !== me.id);
 
+  function openCreate() {
+    setEditId(null); setSubject(""); setDescription(""); setCategory("IT"); setPriority("medium"); setOpen(true);
+  }
+  function openEdit(t: (typeof tickets)[number]) {
+    setEditId(t.id); setSubject(t.subject); setDescription(t.description); setCategory(t.category); setPriority(t.priority); setOpen(true);
+  }
   function submit() {
     if (!subject || !description) return;
-    createTicket({ subject, description, category, priority });
-    setOpen(false); setSubject(""); setDescription("");
+    if (editId) updateTicket(editId, { subject, description, category, priority });
+    else createTicket({ subject, description, category, priority });
+    setOpen(false); setEditId(null); setSubject(""); setDescription("");
+  }
+  function remove(id: string) {
+    if (window.confirm("Delete this ticket?")) deleteTicket(id);
   }
 
   const Row = ({ t, canManage }: { t: (typeof tickets)[number]; canManage: boolean }) => {
     const raiser = userById(t.raisedById);
+    const isOwner = t.raisedById === me.id;
+    const canEdit = (isOwner && t.status === "open") || isSupport; // owner edits while still open; support anytime
+    const canDelete = isOwner || isSupport;
     return (
       <Card className="p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -52,14 +68,18 @@ export default function TicketsPage() {
             <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--muted-2)]"><Avatar name={raiser?.name ?? "?"} size={16} /> {raiser?.name} · {relativeTime(t.createdAt)}</div>
             {t.comments.map((c, i) => <div key={i} className="mt-1 rounded-md bg-[var(--surface-2)] px-2 py-1 text-xs">{userById(c.by)?.name}: {c.text}</div>)}
           </div>
-          {canManage && t.status !== "closed" && (
-            <select value={t.status} onChange={(e) => setTicketStatus(t.id, e.target.value as TicketStatus)} className="h-8 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs">
-              <option value="open">Open</option>
-              <option value="in_progress">In progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
-            </select>
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {canManage && t.status !== "closed" && (
+              <select value={t.status} onChange={(e) => setTicketStatus(t.id, e.target.value as TicketStatus)} className="h-8 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs">
+                <option value="open">Open</option>
+                <option value="in_progress">In progress</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+            )}
+            {canEdit && <button onClick={() => openEdit(t)} className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]" aria-label="Edit"><Pencil size={15} /></button>}
+            {canDelete && <button onClick={() => remove(t.id)} className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]" aria-label="Delete"><Trash2 size={15} /></button>}
+          </div>
         </div>
       </Card>
     );
@@ -67,7 +87,7 @@ export default function TicketsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Helpdesk" subtitle="Raise IT, HR or facilities requests" action={<Button onClick={() => setOpen(true)}><Plus size={16} /> Raise ticket</Button>} />
+      <PageHeader title="Helpdesk" subtitle="Raise IT, HR or facilities requests" action={<Button onClick={openCreate}><Plus size={16} /> Raise ticket</Button>} />
 
       {isSupport && assigned.length > 0 && (
         <div className="space-y-2">
@@ -83,8 +103,8 @@ export default function TicketsPage() {
         ) : mine.map((t) => <Row key={t.id} t={t} canManage={isSupport} />)}
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Raise a ticket" size="md"
-        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={!subject || !description}>Submit</Button></>}>
+      <Modal open={open} onClose={() => setOpen(false)} title={editId ? "Edit ticket" : "Raise a ticket"} size="md"
+        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={!subject || !description}>{editId ? "Save" : "Submit"}</Button></>}>
         <div className="space-y-4">
           <Field label="Subject"><Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Short summary" /></Field>
           <div className="grid grid-cols-2 gap-3">

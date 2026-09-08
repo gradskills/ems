@@ -10,6 +10,8 @@ import { ApplyLeaveModal } from "@/components/ems/ApplyLeaveModal";
 import { BreakWidget } from "@/components/ems/BreakWidget";
 import { CameraCapture } from "@/components/ems/CameraCapture";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
+import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
+import { ClockReminderSettings } from "@/components/ems/ClockReminderSettings";
 import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel } from "@/lib/ems";
 import { formatDate, inr } from "@/lib/utils";
 import { LogOut, CalendarPlus, CheckSquare, Clock, MapPin, Camera, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight, AlertTriangle, LifeBuoy } from "lucide-react";
@@ -93,6 +95,8 @@ export default function MyDashboardPage() {
         </div>
         <Button variant="secondary" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
       </div>
+
+      <BirthdayBanner />
 
       {unfinished && (
         <Card className="flex flex-col gap-3 border-[var(--warning)] p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -180,6 +184,8 @@ export default function MyDashboardPage() {
           <BreakWidget clockedIn={clockedInNow} />
         </div>
       </div>
+
+      <ClockReminderSettings />
 
       {/* ── My tasks + leave requests + announcements ── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -318,6 +324,8 @@ function AdminMyDashboard({ greet, name }: { greet: string; name: string }) {
         </div>
         <Link href="/attendance"><Button variant="outline"><Users size={16} /> Who's in</Button></Link>
       </div>
+
+      <BirthdayBanner />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Link href="/attendance"><Card className="lift p-4"><Stat label="Clocked in today" value={`${todayRecs.length}/${staff.length}`} sub={`${workingNow} working now`} accent="var(--success)" /></Card></Link>

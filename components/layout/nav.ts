@@ -26,6 +26,8 @@ import {
   Compass,
   CalendarClock,
   CircleUser,
+  Trophy,
+  Clock,
   LucideIcon,
 } from "lucide-react";
 
@@ -85,6 +87,8 @@ export const navItems: NavItem[] = [
   { href: "/performance", label: "My Performance", icon: TrendingUp, group: "overview", when: (c) => c.accessLevel === "employee" && c.features.has("leads") },
   { href: "/tickets", label: "Helpdesk", icon: LifeBuoy, group: "overview", when: selfService },
   { href: "/announcements", label: "Announcements", icon: Announce, group: "overview", when: selfService },
+  // Attendance leaderboard — a company-wide motivational ranking everyone can see.
+  { href: "/leaderboard", label: "Leaderboard", icon: Trophy, group: "overview", when: selfService },
 
   // ── Workspace: sales (BDA lens) ──
   { href: "/today", label: "Today", icon: Phone, group: "work", when: (c) => c.accessLevel === "employee" && c.features.has("leads"), mobile: true },
@@ -117,13 +121,14 @@ export const navItems: NavItem[] = [
   { href: "/employees", label: "Employees", icon: Users, group: "people", when: isMgrUp },
   { href: "/leaves", label: "Leave Requests", icon: CalendarCheck, group: "people", when: isMgrUp },
   { href: "/attendance", label: "Attendance", icon: ClipboardList, group: "people", when: isMgrUp },
+  { href: "/shifts", label: "Shifts", icon: Clock, group: "people", when: isAdmin },
   { href: "/payroll", label: "Payroll", icon: Wallet, group: "people", when: isMgrUp },
   { href: "/approvals", label: "Approvals", icon: CheckSquare, group: "people", when: isMgrUp },
 
   // ── Oversight (admin-heavy) ──
   { href: "/departments", label: "Departments & Roles", icon: Building2, group: "oversight", when: isAdmin },
   { href: "/reports", label: "Reports", icon: BarChart3, group: "oversight", when: isMgrUp },
-  { href: "/audit", label: "Audit Log", icon: ShieldCheck, group: "oversight", when: isMgrUp },
+  { href: "/audit", label: "Log History", icon: ShieldCheck, group: "oversight", when: isMgrUp },
   { href: "/settings", label: "Company Settings", icon: Settings, group: "oversight", when: isAdmin },
 ];
 

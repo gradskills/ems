@@ -9,9 +9,11 @@ import { Card, Badge, Avatar, Button, ProgressBar } from "@/components/ui/primit
 import { PageHeader, TableShell, SearchInput } from "@/components/ems/kit";
 import { visibleEmployees, attendanceSummary, roleLabel } from "@/lib/ems";
 import { CreateEmployeeModal } from "@/components/ems/CreateEmployeeModal";
+import { Tabs, useTabs } from "@/components/ems/kit";
 import { downloadCSV } from "@/lib/exports";
 import { inr } from "@/lib/utils";
-import { ChevronRight, Plus, Users, UserCog, Download } from "lucide-react";
+import { ChevronRight, Plus, Users, UserCog, Download, Trash2, RotateCcw } from "lucide-react";
+import type { User } from "@/lib/types";
 
 export default function EmployeesPage() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -20,6 +22,8 @@ export default function EmployeesPage() {
   const departments = useApp((s) => s.departments);
   const attendance = useApp((s) => s.attendance);
   const tasks = useApp((s) => s.tasks);
+  const deleteEmployee = useApp((s) => s.deleteEmployee);
+  const reinstateEmployee = useApp((s) => s.reinstateEmployee);
   const viewer = userById(actingUserId)!;
 
   // When a manager/admin drills into a department lens, this page shows only that
@@ -30,8 +34,13 @@ export default function EmployeesPage() {
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
+  const [view, setView] = useTabs<"active" | "past">("active");
 
-  const scoped = useMemo(() => {
+  const canManage = viewer.accessLevel !== "employee";
+  const canSeePay = viewer.accessLevel !== "employee";
+
+  // everyone the viewer can see, filtered by the lens/dept picker + search
+  const base = useMemo(() => {
     let list = visibleEmployees(viewer, employees);
     if (lensDept) list = list.filter((u) => u.departmentId === lensDept);
     else if (dept !== "all") list = list.filter((u) => u.departmentId === dept);
@@ -44,8 +53,22 @@ export default function EmployeesPage() {
     return list;
   }, [viewer, employees, departments, dept, q, lensDept]);
 
-  const canManage = viewer.accessLevel !== "employee";
-  const canSeePay = viewer.accessLevel !== "employee";
+  const activeList = useMemo(() => base.filter((u) => u.status !== "resigned"), [base]);
+  const pastList = useMemo(() => base.filter((u) => u.status === "resigned"), [base]);
+  const scoped = view === "past" ? pastList : activeList;
+
+  function archive(u: User) {
+    if (window.confirm(`Move ${u.name} to Past employees? They'll drop off the active roster but their records are kept.`)) {
+      const res = deleteEmployee(u.id, "archive");
+      if (!res.ok) window.alert(res.error);
+    }
+  }
+  function purge(u: User) {
+    if (window.confirm(`Permanently delete ${u.name}? This removes their record entirely and can't be undone.`)) {
+      const res = deleteEmployee(u.id, "purge");
+      if (!res.ok) window.alert(res.error);
+    }
+  }
 
   function exportCSV() {
     const header = ["Name", "Department", "Role", "Access level", "Designation", "Reports to", "Status", "Employment", "Email", "Phone", "Location", "Joined", ...(canSeePay ? ["Annual CTC"] : [])];
@@ -101,6 +124,17 @@ export default function EmployeesPage() {
           )}
         </div>
       </Card>
+
+      {canManage && (
+        <Tabs
+          tabs={[
+            { key: "active", label: "Active", count: activeList.length },
+            { key: "past", label: "Past employees", count: pastList.length },
+          ]}
+          active={view}
+          onChange={setView}
+        />
+      )}
 
       {/* Desktop table */}
       <Card className="hidden overflow-hidden lg:block">
@@ -158,7 +192,20 @@ export default function EmployeesPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-sm font-semibold">{openTasks}</td>
-                <td className="px-4 py-3 text-right"><Link href={`/employees/${u.id}`}><ChevronRight size={16} className="text-[var(--muted-2)]" /></Link></td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    {canManage && view === "active" && u.id !== viewer.id && (
+                      <button onClick={() => archive(u)} title="Move to Past employees" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"><Trash2 size={15} /></button>
+                    )}
+                    {canManage && view === "past" && (
+                      <>
+                        <button onClick={() => reinstateEmployee(u.id)} title="Reinstate" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--success)]"><RotateCcw size={15} /></button>
+                        <button onClick={() => purge(u)} title="Delete permanently" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"><Trash2 size={15} /></button>
+                      </>
+                    )}
+                    <Link href={`/employees/${u.id}`}><ChevronRight size={16} className="text-[var(--muted-2)]" /></Link>
+                  </div>
+                </td>
               </tr>
             );
           })}
@@ -170,17 +217,29 @@ export default function EmployeesPage() {
         {scoped.map((u) => {
           const d = departmentById(u.departmentId);
           return (
-            <Link key={u.id} href={`/employees/${u.id}`}>
-              <Card className="lift flex items-center gap-3 p-3">
+            <Card key={u.id} className="lift flex items-center gap-3 p-3">
+              <Link href={`/employees/${u.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                 <Avatar name={u.name} size={40} src={u.avatarUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{u.name}</div>
                   <div className="text-xs text-[var(--muted)]">{roleLabel(u, d)}</div>
-                  <div className="mt-1"><Badge color={d?.color ?? "slate"}>{d?.name}</Badge></div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <Badge color={d?.color ?? "slate"}>{d?.name}</Badge>
+                    {u.status === "resigned" && <Badge color="slate" dot>Past</Badge>}
+                  </div>
                 </div>
-                <ChevronRight size={16} className="text-[var(--muted-2)]" />
-              </Card>
-            </Link>
+              </Link>
+              {canManage && view === "active" && u.id !== viewer.id ? (
+                <button onClick={() => archive(u)} title="Move to Past employees" className="shrink-0 rounded-md p-2 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"><Trash2 size={16} /></button>
+              ) : canManage && view === "past" ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  <button onClick={() => reinstateEmployee(u.id)} title="Reinstate" className="rounded-md p-2 text-[var(--muted-2)] hover:bg-[var(--surface)] hover:text-[var(--success)]"><RotateCcw size={16} /></button>
+                  <button onClick={() => purge(u)} title="Delete permanently" className="rounded-md p-2 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"><Trash2 size={16} /></button>
+                </div>
+              ) : (
+                <ChevronRight size={16} className="shrink-0 text-[var(--muted-2)]" />
+              )}
+            </Card>
           );
         })}
       </div>
@@ -188,7 +247,7 @@ export default function EmployeesPage() {
       {scoped.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-center text-[var(--muted)]">
           <Users size={28} className="text-[var(--muted-2)]" />
-          <p className="text-sm">No employees match your filters.</p>
+          <p className="text-sm">{view === "past" ? "No past employees." : "No employees match your filters."}</p>
         </div>
       )}
 

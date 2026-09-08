@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { Modal, Field, Input } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
 import { attendanceLabel } from "@/lib/ems";
 import type { AttendanceRecord, AttendanceStatus, User } from "@/lib/types";
+import { AlertTriangle, LogIn } from "lucide-react";
 
 // Admin-only editor: mark someone present/absent/on-leave for a date and fix the
 // check-in / check-out times they may have forgotten. Writes through the store's
-// setAttendance action (which persists to Supabase).
+// setAttendance action (which persists to Supabase). When the employee couldn't
+// finish a past day (clocked in but never clocked out, or the backend flagged
+// the punch), those days are listed at the top so the admin can jump straight to
+// the one that needs review and set the missing time.
 const STATUS_OPTIONS: AttendanceStatus[] = [
   "present", "wfh", "half_day", "leave", "absent", "holiday", "week_off",
 ];
@@ -28,39 +32,75 @@ function timeToIso(date: string, time: string): string | null {
   d.setHours(h, m, 0, 0);
   return d.toISOString();
 }
+// is this a past day the employee couldn't finish? (needs an admin's review)
+function needsReview(a: AttendanceRecord, today: string): boolean {
+  return a.date < today && ((!!a.checkIn && !a.checkOut) || a.status === "needs_review" || a.status === "pending_punchout");
+}
 
 export function AttendanceEditModal({
-  open, onClose, employee, date, record,
+  open, onClose, employee, date,
 }: {
   open: boolean;
   onClose: () => void;
   employee: User | null;
   date: string;
+  // `record` was previously passed in, but the modal now reads live from the
+  // store so the review list refreshes as days get fixed. Kept out of the props.
   record?: AttendanceRecord;
 }) {
   const setAttendance = useApp((s) => s.setAttendance);
+  const attendance = useApp((s) => s.attendance);
+  const today = new Date().toISOString().slice(0, 10);
 
+  const [activeDate, setActiveDate] = useState(date);
   const [status, setStatus] = useState<AttendanceStatus>("present");
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
 
-  // reset the form whenever the target person/date/record changes
-  useEffect(() => {
-    if (!open) return;
-    setStatus((record?.status as AttendanceStatus) ?? "present");
-    setCheckIn(isoToTime(record?.checkIn));
-    setCheckOut(isoToTime(record?.checkOut));
-  }, [open, record, employee?.id, date]);
+  // every past day this person clocked in without clocking out (latest first)
+  const reviewDays = useMemo(() => {
+    if (!employee) return [] as AttendanceRecord[];
+    return attendance
+      .filter((a) => a.userId === employee.id && needsReview(a, today))
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+  }, [attendance, employee, today]);
+
+  // the stored record for whichever date the admin is currently editing
+  const activeRecord = useMemo(
+    () => (employee ? attendance.find((a) => a.userId === employee.id && a.date === activeDate) : undefined),
+    [attendance, employee, activeDate]
+  );
+
+  // Sync form state to props during render (React's recommended pattern for
+  // "reset state when something changes" — no effects, no cascading renders).
+  // 1) each time the modal opens (or its launch target changes) jump to `date`.
+  const [openedFor, setOpenedFor] = useState<string | null>(null);
+  const launchKey = `${open}:${employee?.id ?? ""}:${date}`;
+  if (launchKey !== openedFor) {
+    setOpenedFor(launchKey);
+    setActiveDate(date);
+  }
+  // 2) whenever the day being edited changes, load that day's stored values.
+  const [syncedFor, setSyncedFor] = useState<string | null>(null);
+  const syncKey = `${activeDate}:${activeRecord?.checkIn ?? ""}:${activeRecord?.checkOut ?? ""}:${activeRecord?.status ?? ""}`;
+  if (syncKey !== syncedFor) {
+    setSyncedFor(syncKey);
+    setStatus((activeRecord?.status as AttendanceStatus) ?? "present");
+    setCheckIn(isoToTime(activeRecord?.checkIn));
+    setCheckOut(isoToTime(activeRecord?.checkOut));
+  }
 
   if (!employee) return null;
 
   const worksTimes = status === "present" || status === "wfh" || status === "half_day";
+  const fmtT = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—");
+  const fmtDay = (d: string) => new Date(d).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 
   function save() {
-    setAttendance(employee!.id, date, {
+    setAttendance(employee!.id, activeDate, {
       status,
-      checkIn: worksTimes ? timeToIso(date, checkIn) : null,
-      checkOut: worksTimes ? timeToIso(date, checkOut) : null,
+      checkIn: worksTimes ? timeToIso(activeDate, checkIn) : null,
+      checkOut: worksTimes ? timeToIso(activeDate, checkOut) : null,
     });
     onClose();
   }
@@ -79,9 +119,42 @@ export function AttendanceEditModal({
       }
     >
       <div className="space-y-4">
-        <div className="rounded-lg bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--muted)]">
-          {new Date(date).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-        </div>
+        {/* Days the employee couldn't finish — pick one to fix its clock-out */}
+        {reviewDays.length > 0 && (
+          <div className="rounded-xl border border-[var(--warning)] bg-[var(--warning-soft)] p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
+              <AlertTriangle size={15} />
+              {reviewDays.length} day{reviewDays.length > 1 ? "s" : ""} need review
+            </div>
+            <p className="mb-2.5 text-[11px] text-[var(--muted)]">Clocked in but never clocked out. Pick a day, then set the clock-out time below.</p>
+            <div className="space-y-1.5">
+              {reviewDays.map((r) => {
+                const selected = r.date === activeDate;
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setActiveDate(r.date)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${selected ? "border-[var(--warning)] bg-[var(--surface)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--warning)]"}`}
+                  >
+                    <span className="text-sm font-medium">{fmtDay(r.date)}</span>
+                    <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                      {r.checkIn ? (
+                        <><LogIn size={12} /> In {fmtT(r.checkIn)}</>
+                      ) : (
+                        <span className="text-[var(--muted-2)]">No clock-in</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Date being edited — admin can also pick any other day to correct */}
+        <Field label="Date" hint="Pick any day to correct its attendance">
+          <Input type="date" value={activeDate} max={today} onChange={(e) => e.target.value && setActiveDate(e.target.value)} />
+        </Field>
 
         <Field label="Status">
           <select

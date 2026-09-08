@@ -10,7 +10,7 @@ import { roleLabel } from "@/lib/ems";
 import { downloadCSV } from "@/lib/exports";
 import { userById } from "@/lib/seed/users";
 import type { DeptFeature, Department } from "@/lib/types";
-import { Plus, Building2, ChevronRight, Mail, Phone, Download, Users } from "lucide-react";
+import { Plus, Building2, ChevronRight, Mail, Phone, Download, Users, Pencil, Trash2 } from "lucide-react";
 
 const ALL_FEATURES: { key: DeptFeature; label: string }[] = [
   { key: "leads", label: "Leads" },
@@ -31,7 +31,10 @@ export default function DepartmentsPage() {
   const departments = useApp((s) => s.departments);
   const employees = useApp((s) => s.employees);
   const addDepartment = useApp((s) => s.addDepartment);
+  const updateDepartment = useApp((s) => s.updateDepartment);
+  const deleteDepartment = useApp((s) => s.deleteDepartment);
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // null = creating
   const [viewDept, setViewDept] = useState<Department | null>(null);
 
   const [name, setName] = useState("");
@@ -42,10 +45,23 @@ export default function DepartmentsPage() {
   function toggle(f: DeptFeature) {
     setFeatures((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   }
+  function openCreate() {
+    setEditId(null); setName(""); setKey(""); setFeatures([]); setColor("primary"); setOpen(true);
+  }
+  function openEdit(d: Department) {
+    setEditId(d.id); setName(d.name); setKey(d.key); setColor(d.color); setFeatures(d.features); setOpen(true);
+  }
   function submit() {
     if (!name || !key) return;
-    addDepartment({ name, key: key.toLowerCase().replace(/\s+/g, "_"), color, features });
-    setOpen(false); setName(""); setKey(""); setFeatures([]); setColor("primary");
+    const slug = key.toLowerCase().replace(/\s+/g, "_");
+    if (editId) updateDepartment(editId, { name, key: slug, color, features });
+    else addDepartment({ name, key: slug, color, features });
+    setOpen(false); setEditId(null); setName(""); setKey(""); setFeatures([]); setColor("primary");
+  }
+  function remove(d: Department) {
+    if (!window.confirm(`Delete the "${d.name}" department? This can't be undone.`)) return;
+    const res = deleteDepartment(d.id);
+    if (!res.ok) window.alert(res.error ?? "Couldn't delete this department.");
   }
 
   const viewMembers = viewDept ? employees.filter((u) => u.departmentId === viewDept.id) : [];
@@ -65,7 +81,7 @@ export default function DepartmentsPage() {
       <PageHeader
         title="Departments & Roles"
         subtitle="Roles across the company — click a department to see its people"
-        action={<Button onClick={() => setOpen(true)}><Plus size={16} /> New department</Button>}
+        action={<Button onClick={openCreate}><Plus size={16} /> New department</Button>}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -82,8 +98,20 @@ export default function DepartmentsPage() {
                     <div className="text-[11px] text-[var(--muted-2)]">{d.key} · {members.length} people</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   {d.system && <Badge color="slate">System</Badge>}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openEdit(d); }}
+                    className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                    aria-label={`Edit ${d.name}`}
+                  ><Pencil size={15} /></button>
+                  {!d.system && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); remove(d); }}
+                      className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                      aria-label={`Delete ${d.name}`}
+                    ><Trash2 size={15} /></button>
+                  )}
                   <ChevronRight size={16} className="text-[var(--muted-2)]" />
                 </div>
               </div>
@@ -167,9 +195,9 @@ export default function DepartmentsPage() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="New department / role"
+        title={editId ? "Edit department / role" : "New department / role"}
         size="lg"
-        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={!name || !key}>Create</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={!name || !key}>{editId ? "Save changes" : "Create"}</Button></>}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Design" /></Field>

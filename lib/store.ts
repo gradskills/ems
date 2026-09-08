@@ -40,6 +40,7 @@ import type {
   CompanySettings,
   CompanyDay,
   CompanyDayType,
+  Shift,
   ApprovalRules,
   AuditReport,
   AuditReportStatus,
@@ -73,7 +74,8 @@ import { withCredentials, loginIdFor, tempPassword, readAuth, writeAuth } from "
 const seedUsers = seedUsersRaw.map(withCredentials);
 import { departments as seedDepartments, companySettings as seedCompany, approvalRules as seedApprovalRules } from "@/lib/seed/org";
 import { attendance as seedAttendance, leaveRequests as seedLeaves, payslips as seedPayslips } from "@/lib/seed/hr";
-import { readCompanyDays, writeCompanyDays, writePersonalExtra, applyPersonalExtras } from "@/lib/localExtras";
+import { readCompanyDays, writeCompanyDays, writePersonalExtra, applyPersonalExtras, readShifts, writeShifts, writeShiftAssignment, pruneShiftAssignments, applyShiftAssignments } from "@/lib/localExtras";
+import { DEFAULT_SHIFTS } from "@/lib/shifts";
 import { tasks as seedTasks } from "@/lib/seed/tasks";
 import { projects as seedProjects } from "@/lib/seed/projects";
 import { mediaClients as seedClients, campaigns as seedCampaigns, contentPosts as seedContent } from "@/lib/seed/media";
@@ -83,6 +85,7 @@ import { briefs as seedBriefs } from "@/lib/seed/briefs";
 import { forms as seedForms, formResponses as seedFormResponses } from "@/lib/seed/forms";
 import { meetings as seedMeetings } from "@/lib/seed/meetings";
 import { proposalTotals } from "@/lib/qims";
+import { todaysBirthdays, todayISO } from "@/lib/birthdays";
 import { hydrateAll } from "@/lib/supabase/hydrate";
 import {
   persistChanges, setPersistSuspended,
@@ -174,6 +177,8 @@ interface AppState {
   company: CompanySettings;
   approvalRules: ApprovalRules;
   companyDays: CompanyDay[];
+  shifts: Shift[];
+  birthdayGreetedDate: string; // YYYY-MM-DD the auto birthday greetings last ran
 
   // ── actions ──
   moveStage: (leadId: string, to: LeadStage, reason?: string) => void;
@@ -195,13 +200,28 @@ interface AppState {
   updateEmployee: (id: string, patch: Partial<Pick<User, "name" | "email" | "phone" | "departmentId" | "accessLevel" | "designation" | "managerId" | "employmentType" | "location" | "status" | "monthlyTargetCalls" | "monthlyTargetRevenue" | "ctcAnnual" | "avatarUrl" | "personalEmail" | "dateOfBirth" | "bloodGroup" | "address" | "emergencyContactName" | "emergencyContactPhone" | "emergencyContactRelation">>) => void;
   // admin grants (or denies) feature access to a newly-onboarded employee
   approveEmployee: (id: string, approve: boolean) => void;
+  // Remove an employee. "archive" marks them resigned → they drop out of the
+  // active roster and appear under Past employees. "purge" deletes the record
+  // permanently (used from the Past employees view). Refuses to delete yourself.
+  deleteEmployee: (id: string, mode: "archive" | "purge") => { ok: boolean; error?: string };
+  // Bring a resigned employee back into the active roster.
+  reinstateEmployee: (id: string) => void;
   addDepartment: (input: NewDepartmentInput) => string;
+  updateDepartment: (id: string, patch: Partial<Pick<Department, "name" | "key" | "color" | "features" | "icon">>) => void;
+  // Delete a department. Refused for system depts or ones that still have members
+  // — returns an { ok, error } result so the UI can explain why.
+  deleteDepartment: (id: string) => { ok: boolean; error?: string };
   applyLeave: (input: NewLeaveInput) => void;
   decideLeave: (id: string, decision: "approved" | "rejected", note?: string) => void;
   deleteLeave: (id: string) => void;
   // ── company days (holiday / working-day / portal-issue calendar) ──
   saveCompanyDay: (input: { id?: string; date: string; type: CompanyDayType; reason: string }) => void;
   removeCompanyDay: (id: string) => void;
+  // ── work shifts (admin-managed; persisted browser-local like company days) ──
+  addShift: (input: Omit<Shift, "id" | "system">) => string;
+  updateShift: (id: string, patch: Partial<Omit<Shift, "id" | "system">>) => void;
+  deleteShift: (id: string) => { ok: boolean; error?: string };
+  assignShift: (userId: string, shiftId: string | undefined) => void;
   hydrateExtras: () => void;
   clockIn: (opts?: { photo?: string; coords?: { lat: number; lng: number }; timezone?: string; wfh?: boolean }) => Promise<boolean>;
   clockOut: () => void;
@@ -214,6 +234,7 @@ interface AppState {
   updateMeeting: (id: string, patch: Partial<Omit<Meeting, "id" | "organizerId" | "insights" | "minutes">>) => void;
   addMeetingNote: (id: string, kind: "insight" | "minute", text: string) => void;
   setMeetingStatus: (id: string, status: MeetingStatus) => void;
+  deleteMeeting: (id: string) => void;
   startBreak: (type: BreakType, minutes: number) => void;
   endBreak: () => void;
   breakReminder: (breakId: string) => void;
@@ -232,9 +253,25 @@ interface AppState {
   deleteTask: (id: string) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (userId: string) => void;
+  // generic in-app notification (used by clock-in/out reminders, etc.)
+  notify: (userId: string, title: string, body: string, href?: string) => void;
+  // ── birthdays ──
+  // Fires the automatic "Happy Birthday" greeting to anyone whose birthday is
+  // today (idempotent per calendar day). Colleagues are nudged to wish them via
+  // the dashboard banner rather than a per-person notification.
+  runBirthdayGreetings: () => void;
+  // A colleague sends a birthday wish to `toUserId` — delivers an in-app
+  // notification (and a best-effort email) from the acting user.
+  wishBirthday: (toUserId: string) => void;
   addAnnouncement: (title: string, body: string, audience: string) => void;
+  updateAnnouncement: (id: string, patch: Partial<Pick<Announcement, "title" | "body" | "audience" | "pinned">>) => void;
+  deleteAnnouncement: (id: string) => void;
   createTicket: (input: NewTicketInput) => string;
   setTicketStatus: (id: string, status: TicketStatus) => void;
+  updateTicket: (id: string, patch: Partial<Pick<Ticket, "subject" | "description" | "category" | "priority" | "assigneeId" | "departmentId">>) => void;
+  deleteTicket: (id: string) => void;
+  updatePayslip: (id: string, patch: Partial<Payslip>) => void;
+  deletePayslip: (id: string) => void;
   saveCompany: (patch: Partial<CompanySettings>) => void;
   setApprovalRules: (patch: Partial<ApprovalRules>) => void;
   // ── QIMS: audit reports + quotation review + customer portal ──
@@ -465,12 +502,12 @@ export const useApp = create<AppState>((rawSet, get) => {
       setPersistSuspended(false);
       // Overlay browser-local extras (company days + personal ID-card fields)
       // AFTER the Supabase load so they aren't overwritten by the fetched rows.
-      set((s) => ({ companyDays: readCompanyDays(), employees: applyPersonalExtras(s.employees) }));
+      set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
       set({ dataReady: true });
     }
   },
   hydrateExtras: () => {
-    set((s) => ({ companyDays: readCompanyDays(), employees: applyPersonalExtras(s.employees) }));
+    set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
   },
   saveCompanyDay: (input) =>
     set((s) => {
@@ -499,6 +536,56 @@ export const useApp = create<AppState>((rawSet, get) => {
       const audit = day ? pushAudit(s, { action: "delete", entity: "company_day", entityId: id, entityLabel: `${day.type} · ${day.date}` }) : undefined;
       return audit ? { companyDays, audit: [audit, ...s.audit] } : { companyDays };
     }),
+
+  addShift: (input) => {
+    const id = nid("shift");
+    set((s) => {
+      const shift: Shift = { ...input, id };
+      const shifts = [...s.shifts, shift];
+      writeShifts(shifts);
+      const audit = pushAudit(s, { action: "create", entity: "shift", entityId: id, entityLabel: input.name });
+      return { shifts, audit: [audit, ...s.audit] };
+    });
+    return id;
+  },
+
+  updateShift: (id, patch) =>
+    set((s) => {
+      const shift = s.shifts.find((x) => x.id === id);
+      if (!shift) return s;
+      const shifts = s.shifts.map((x) => (x.id === id ? { ...x, ...patch } : x));
+      writeShifts(shifts);
+      const audit = pushAudit(s, { action: "update", entity: "shift", entityId: id, entityLabel: patch.name ?? shift.name });
+      return { shifts, audit: [audit, ...s.audit] };
+    }),
+
+  deleteShift: (id) => {
+    const s = get();
+    const shift = s.shifts.find((x) => x.id === id);
+    if (!shift) return { ok: false, error: "Shift not found." };
+    if (shift.system) return { ok: false, error: "This is a built-in shift and can't be deleted." };
+    set((st) => {
+      const shifts = st.shifts.filter((x) => x.id !== id);
+      writeShifts(shifts);
+      pruneShiftAssignments(shifts.map((x) => x.id));
+      // clear the shift from anyone who had it
+      const employees = st.employees.map((e) => (e.shiftId === id ? { ...e, shiftId: undefined } : e));
+      const audit = pushAudit(st, { action: "delete", entity: "shift", entityId: id, entityLabel: shift.name });
+      return { shifts, employees, audit: [audit, ...st.audit] };
+    });
+    return { ok: true };
+  },
+
+  assignShift: (userId, shiftId) =>
+    set((s) => {
+      const emp = s.employees.find((e) => e.id === userId);
+      if (!emp) return s;
+      writeShiftAssignment(userId, shiftId);
+      const shiftName = shiftId ? s.shifts.find((x) => x.id === shiftId)?.name ?? shiftId : "None";
+      const audit = pushAudit(s, { action: "update", entity: "employee", entityId: userId, entityLabel: emp.name, field: "shift", after: shiftName });
+      return { employees: s.employees.map((e) => (e.id === userId ? { ...e, shiftId } : e)), audit: [audit, ...s.audit] };
+    }),
+
   hydrateAuth: () => {
     const stored = readAuth();
     const u = stored ? get().employees.find((e) => e.id === stored) : undefined;
@@ -596,6 +683,8 @@ export const useApp = create<AppState>((rawSet, get) => {
   company: seedCompany,
   approvalRules: seedApprovalRules,
   companyDays: [],
+  shifts: DEFAULT_SHIFTS,
+  birthdayGreetedDate: "",
 
   moveStage: (leadId, to, reason) =>
     set((s) => {
@@ -1068,6 +1157,37 @@ export const useApp = create<AppState>((rawSet, get) => {
       return { employees: s.employees.map((e) => (e.id === id ? after : e)), audit: [audit, ...s.audit], notifications: [notify, ...s.notifications] };
     }),
 
+  deleteEmployee: (id, mode) => {
+    const s = get();
+    if (id === s.actingUserId) return { ok: false, error: "You can't delete your own account." };
+    const emp = s.employees.find((e) => e.id === id);
+    if (!emp) return { ok: false, error: "Employee not found." };
+    if (mode === "archive") {
+      set((st) => {
+        const after = { ...emp, status: "resigned" as User["status"] };
+        const audit = pushAudit(st, { action: "update", entity: "employee", entityId: id, entityLabel: emp.name, after: "Moved to past employees (resigned)" });
+        void persistUserUpdate(id, after);
+        return { employees: st.employees.map((e) => (e.id === id ? after : e)), audit: [audit, ...st.audit] };
+      });
+    } else {
+      set((st) => {
+        const audit = pushAudit(st, { action: "delete", entity: "employee", entityId: id, entityLabel: emp.name });
+        return { employees: st.employees.filter((e) => e.id !== id), audit: [audit, ...st.audit] };
+      });
+    }
+    return { ok: true };
+  },
+
+  reinstateEmployee: (id) =>
+    set((s) => {
+      const emp = s.employees.find((e) => e.id === id);
+      if (!emp) return s;
+      const after = { ...emp, status: "active" as User["status"] };
+      const audit = pushAudit(s, { action: "update", entity: "employee", entityId: id, entityLabel: emp.name, after: "Reinstated to active roster" });
+      void persistUserUpdate(id, after);
+      return { employees: s.employees.map((e) => (e.id === id ? after : e)), audit: [audit, ...s.audit] };
+    }),
+
   addDepartment: (input) => {
     const id = nid("dept");
     set((s) => {
@@ -1076,6 +1196,31 @@ export const useApp = create<AppState>((rawSet, get) => {
       return { departments: [...s.departments, dept], audit: [audit, ...s.audit] };
     });
     return id;
+  },
+
+  updateDepartment: (id, patch) =>
+    set((s) => {
+      const dept = s.departments.find((d) => d.id === id);
+      if (!dept) return s;
+      const audit = pushAudit(s, { action: "update", entity: "department", entityId: id, entityLabel: patch.name ?? dept.name });
+      return {
+        departments: s.departments.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+        audit: [audit, ...s.audit],
+      };
+    }),
+
+  deleteDepartment: (id) => {
+    const s = get();
+    const dept = s.departments.find((d) => d.id === id);
+    if (!dept) return { ok: false, error: "Department not found." };
+    if (dept.system) return { ok: false, error: "System departments can't be deleted." };
+    const members = s.employees.filter((u) => u.departmentId === id && u.status !== "resigned");
+    if (members.length) return { ok: false, error: `Move its ${members.length} member${members.length === 1 ? "" : "s"} to another department first.` };
+    set((st) => {
+      const audit = pushAudit(st, { action: "delete", entity: "department", entityId: id, entityLabel: dept.name });
+      return { departments: st.departments.filter((d) => d.id !== id), audit: [audit, ...st.audit] };
+    });
+    return { ok: true };
   },
 
   applyLeave: (input) => {
@@ -1331,6 +1476,14 @@ export const useApp = create<AppState>((rawSet, get) => {
 
   setMeetingStatus: (id, status) =>
     set((s) => ({ meetings: s.meetings.map((m) => (m.id === id ? { ...m, status } : m)) })),
+
+  deleteMeeting: (id) =>
+    set((s) => {
+      const m = s.meetings.find((x) => x.id === id);
+      if (!m) return s;
+      const audit = pushAudit(s, { action: "delete", entity: "meeting", entityId: id, entityLabel: m.title });
+      return { meetings: s.meetings.filter((x) => x.id !== id), audit: [audit, ...s.audit] };
+    }),
 
   // ── break sessions on today's attendance ──
   startBreak: (type, minutes) => {
@@ -1599,11 +1752,90 @@ export const useApp = create<AppState>((rawSet, get) => {
   markAllNotificationsRead: (userId) =>
     set((s) => ({ notifications: s.notifications.map((n) => (n.userId === userId ? { ...n, read: true } : n)) })),
 
+  notify: (userId, title, body, href) =>
+    set((s) => ({ notifications: [{ id: nid("N"), userId, kind: "system", title, body, at: new Date().toISOString(), read: false, href }, ...s.notifications] })),
+
+  runBirthdayGreetings: () => {
+    const day = todayISO();
+    const s = get();
+    if (s.birthdayGreetedDate === day) return; // already greeted today
+    const celebrants = todaysBirthdays(s.employees, day);
+    if (celebrants.length === 0) {
+      set({ birthdayGreetedDate: day });
+      return;
+    }
+    const now = new Date().toISOString();
+    const greetings: AppNotification[] = celebrants.map((u) => ({
+      id: nid("N"), userId: u.id, kind: "system",
+      title: "🎉 Happy Birthday!",
+      body: `Wishing you a wonderful birthday, ${u.name.split(" ")[0]}! — from everyone at ${s.company.brandName}.`,
+      at: now, read: false, href: "/my",
+    }));
+    set((st) => ({ notifications: [...greetings, ...st.notifications], birthdayGreetedDate: day }));
+    // best-effort birthday email to each celebrant
+    if (typeof window !== "undefined") {
+      for (const u of celebrants) {
+        if (!u.email) continue;
+        void fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [u.email],
+            subject: `🎉 Happy Birthday, ${u.name.split(" ")[0]}!`,
+            text: `Dear ${u.name},\n\nWishing you a very happy birthday from all of us at ${s.company.brandName}. Have a fantastic day!\n\nWarm wishes,\nThe ${s.company.brandName} team`,
+          }),
+        }).catch(() => { /* email is best-effort */ });
+      }
+    }
+  },
+
+  wishBirthday: (toUserId) => {
+    const s = get();
+    const me = userById(s.actingUserId);
+    const to = s.employees.find((e) => e.id === toUserId);
+    if (!me || !to || toUserId === s.actingUserId) return;
+    const note: AppNotification = {
+      id: nid("N"), userId: toUserId, kind: "system",
+      title: "🎂 A birthday wish!",
+      body: `${me.name} wished you a Happy Birthday!`,
+      at: new Date().toISOString(), read: false, href: "/my",
+    };
+    set((st) => ({ notifications: [note, ...st.notifications] }));
+    if (typeof window !== "undefined" && to.email) {
+      void fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [to.email],
+          subject: `🎂 ${me.name} wished you a Happy Birthday!`,
+          text: `Hi ${to.name.split(" ")[0]},\n\n${me.name} sent you a birthday wish:\n"Happy Birthday! 🎉"\n\n— via ${s.company.brandName} EMS`,
+          replyTo: me.email || undefined,
+        }),
+      }).catch(() => { /* best-effort */ });
+    }
+  },
+
   addAnnouncement: (title, body, audience) =>
     set((s) => {
       const an: Announcement = { id: nid("AN"), title, body, authorId: s.actingUserId, at: new Date().toISOString(), audience };
       const audit = pushAudit(s, { action: "create", entity: "announcement", entityId: an.id, entityLabel: title });
       return { announcements: [an, ...s.announcements], audit: [audit, ...s.audit] };
+    }),
+
+  updateAnnouncement: (id, patch) =>
+    set((s) => {
+      const an = s.announcements.find((a) => a.id === id);
+      if (!an) return s;
+      const audit = pushAudit(s, { action: "update", entity: "announcement", entityId: id, entityLabel: patch.title ?? an.title });
+      return { announcements: s.announcements.map((a) => (a.id === id ? { ...a, ...patch } : a)), audit: [audit, ...s.audit] };
+    }),
+
+  deleteAnnouncement: (id) =>
+    set((s) => {
+      const an = s.announcements.find((a) => a.id === id);
+      if (!an) return s;
+      const audit = pushAudit(s, { action: "delete", entity: "announcement", entityId: id, entityLabel: an.title });
+      return { announcements: s.announcements.filter((a) => a.id !== id), audit: [audit, ...s.audit] };
     }),
 
   createTicket: (input) => {
@@ -1631,6 +1863,38 @@ export const useApp = create<AppState>((rawSet, get) => {
 
   setTicketStatus: (id, status) =>
     set((s) => ({ tickets: s.tickets.map((t) => (t.id === id ? { ...t, status, updatedAt: new Date().toISOString() } : t)) })),
+
+  updateTicket: (id, patch) =>
+    set((s) => {
+      const t = s.tickets.find((x) => x.id === id);
+      if (!t) return s;
+      const audit = pushAudit(s, { action: "update", entity: "ticket", entityId: id, entityLabel: patch.subject ?? t.subject });
+      return { tickets: s.tickets.map((x) => (x.id === id ? { ...x, ...patch, updatedAt: new Date().toISOString() } : x)), audit: [audit, ...s.audit] };
+    }),
+
+  deleteTicket: (id) =>
+    set((s) => {
+      const t = s.tickets.find((x) => x.id === id);
+      if (!t) return s;
+      const audit = pushAudit(s, { action: "delete", entity: "ticket", entityId: id, entityLabel: t.subject });
+      return { tickets: s.tickets.filter((x) => x.id !== id), audit: [audit, ...s.audit] };
+    }),
+
+  updatePayslip: (id, patch) =>
+    set((s) => {
+      const p = s.payslips.find((x) => x.id === id);
+      if (!p) return s;
+      const audit = pushAudit(s, { action: "update", entity: "payslip", entityId: id, entityLabel: `${userById(p.userId)?.name ?? p.userId} · ${p.month}` });
+      return { payslips: s.payslips.map((x) => (x.id === id ? { ...x, ...patch } : x)), audit: [audit, ...s.audit] };
+    }),
+
+  deletePayslip: (id) =>
+    set((s) => {
+      const p = s.payslips.find((x) => x.id === id);
+      if (!p) return s;
+      const audit = pushAudit(s, { action: "delete", entity: "payslip", entityId: id, entityLabel: `${userById(p.userId)?.name ?? p.userId} · ${p.month}` });
+      return { payslips: s.payslips.filter((x) => x.id !== id), audit: [audit, ...s.audit] };
+    }),
 
   saveCompany: (patch) => set((s) => ({ company: { ...s.company, ...patch } })),
   setApprovalRules: (patch) => set((s) => ({ approvalRules: { ...s.approvalRules, ...patch } })),

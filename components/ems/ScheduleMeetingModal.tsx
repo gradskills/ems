@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Modal, Field, Input, Textarea } from "@/components/ui/modal";
@@ -19,8 +19,17 @@ function defaultWhen(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function ScheduleMeetingModal({ open, onClose, presetLeadId }: { open: boolean; onClose: () => void; presetLeadId?: string }) {
+// datetime-local string from an ISO timestamp (local time, no seconds)
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function ScheduleMeetingModal({ open, onClose, presetLeadId, editId }: { open: boolean; onClose: () => void; presetLeadId?: string; editId?: string }) {
   const scheduleMeeting = useApp((s) => s.scheduleMeeting);
+  const updateMeeting = useApp((s) => s.updateMeeting);
+  const meetings = useApp((s) => s.meetings);
   const leads = useApp((s) => s.leads);
   const employees = useApp((s) => s.employees);
   const departments = useApp((s) => s.departments);
@@ -37,6 +46,24 @@ export function ScheduleMeetingModal({ open, onClose, presetLeadId }: { open: bo
   const [location, setLocation] = useState("");
   const [agenda, setAgenda] = useState("");
   const [insight, setInsight] = useState("");
+
+  // When opening, load values from the meeting being edited (or reset to
+  // creation defaults). Keyed on open+editId so re-opening never shows stale data.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!open) return;
+    const m = editId ? meetings.find((x) => x.id === editId) : undefined;
+    if (m) {
+      setTitle(m.title); setLeadId(m.leadId ?? ""); setClientContact(m.clientContact ?? "");
+      setAttendeeIds(m.attendeeIds); setWhen(toLocalInput(m.scheduledAt)); setDurationMin(m.durationMin);
+      setMode(m.mode); setLocation(m.location ?? ""); setAgenda(m.agenda ?? ""); setInsight("");
+    } else {
+      setTitle(""); setLeadId(presetLeadId ?? ""); setClientContact(""); setAttendeeIds(me.managerId ? [me.managerId] : []);
+      setWhen(defaultWhen()); setDurationMin(30); setMode("video"); setLocation(""); setAgenda(""); setInsight("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // leads this person can pick: their own book (employees) or all (managers/admin)
   const myLeads = useMemo(
@@ -63,18 +90,32 @@ export function ScheduleMeetingModal({ open, onClose, presetLeadId }: { open: bo
 
   function submit() {
     if (!valid) return;
-    scheduleMeeting({
-      title: title.trim(),
-      leadId: leadId || undefined,
-      clientContact: clientContact.trim() || undefined,
-      attendeeIds,
-      scheduledAt: new Date(when).toISOString(),
-      durationMin,
-      mode,
-      location: location.trim() || undefined,
-      agenda: agenda.trim() || undefined,
-      initialInsight: insight.trim() || undefined,
-    });
+    if (editId) {
+      updateMeeting(editId, {
+        title: title.trim(),
+        leadId: leadId || undefined,
+        clientContact: clientContact.trim() || undefined,
+        attendeeIds,
+        scheduledAt: new Date(when).toISOString(),
+        durationMin,
+        mode,
+        location: location.trim() || undefined,
+        agenda: agenda.trim() || undefined,
+      });
+    } else {
+      scheduleMeeting({
+        title: title.trim(),
+        leadId: leadId || undefined,
+        clientContact: clientContact.trim() || undefined,
+        attendeeIds,
+        scheduledAt: new Date(when).toISOString(),
+        durationMin,
+        mode,
+        location: location.trim() || undefined,
+        agenda: agenda.trim() || undefined,
+        initialInsight: insight.trim() || undefined,
+      });
+    }
     close();
   }
 
@@ -82,12 +123,12 @@ export function ScheduleMeetingModal({ open, onClose, presetLeadId }: { open: bo
     <Modal
       open={open}
       onClose={close}
-      title="Schedule a meeting"
+      title={editId ? "Edit meeting" : "Schedule a meeting"}
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button onClick={submit} disabled={!valid}>Schedule & notify</Button>
+          <Button onClick={submit} disabled={!valid}>{editId ? "Save changes" : "Schedule & notify"}</Button>
         </>
       }
     >
@@ -147,7 +188,7 @@ export function ScheduleMeetingModal({ open, onClose, presetLeadId }: { open: bo
         </Field>
 
         <Field label="Agenda" hint="What is this meeting about?"><Textarea rows={2} value={agenda} onChange={(e) => setAgenda(e.target.value)} placeholder="One line on the purpose of the meeting" /></Field>
-        <Field label="Upfront insights" hint="Context so everyone walks in prepared"><Textarea rows={3} value={insight} onChange={(e) => setInsight(e.target.value)} placeholder="Key background, budget signals, decision makers, objections to expect…" /></Field>
+        {!editId && <Field label="Upfront insights" hint="Context so everyone walks in prepared"><Textarea rows={3} value={insight} onChange={(e) => setInsight(e.target.value)} placeholder="Key background, budget signals, decision makers, objections to expect…" /></Field>}
       </div>
     </Modal>
   );
