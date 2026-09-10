@@ -48,6 +48,9 @@ export default function CampaignsPage() {
       </div>
 
       <Card className="overflow-hidden">
+        {campaigns.length === 0 ? (
+          <div className="py-12 text-center text-sm text-[var(--muted)]">No campaigns yet.</div>
+        ) : (
         <TableShell head={<><th className="px-4 py-3">Campaign</th><th className="px-4 py-3">Client</th><th className="px-4 py-3">Channel</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reach</th><th className="px-4 py-3">Eng.</th><th className="px-4 py-3">Leads</th><th className="px-4 py-3">Spend</th><th className="px-4 py-3">Links</th>{canManage && <th className="px-4 py-3"></th>}</>}>
           {campaigns.map((c) => (
             <tr key={c.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
@@ -76,6 +79,7 @@ export default function CampaignsPage() {
             </tr>
           ))}
         </TableShell>
+        )}
       </Card>
 
       <CampaignModal campaign={null} open={createOpen} onClose={() => setCreateOpen(false)} />

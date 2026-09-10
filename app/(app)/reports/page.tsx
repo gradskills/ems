@@ -17,7 +17,7 @@ export default function ReportsPage() {
     <div className="space-y-5">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><BarChart3 size={22} className="text-[var(--primary)]" /> Reports</h1>
-        <p className="text-sm text-[var(--muted)]">Auto-generated and emailed on schedule — or pull a person dossier on demand.</p>
+        <p className="hidden text-sm text-[var(--muted)] lg:block">Auto-generated and emailed on schedule — or pull a person dossier on demand.</p>
       </div>
 
       <div className="flex gap-2 border-b border-[var(--border)]">
@@ -82,9 +82,9 @@ function DailyDigest() {
         />
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[560px] text-sm">
           <thead>
-            <tr className="border-b border-[var(--border)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            <tr className="border-b border-[var(--border)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)] [&>th]:whitespace-nowrap [&>th]:pr-4">
               <th className="py-2">BDA</th><th className="py-2">Calls</th><th className="py-2">Connects</th><th className="py-2">Follow-ups</th><th className="py-2">Proposals</th><th className="py-2">Moved</th>
             </tr>
           </thead>
@@ -92,7 +92,7 @@ function DailyDigest() {
             {bdas.map((b, i) => {
               const bl = leads.filter((l) => l.ownerId === b.id);
               return (
-                <tr key={b.id} className="border-b border-[var(--border)] last:border-0">
+                <tr key={b.id} className="border-b border-[var(--border)] last:border-0 [&>td]:whitespace-nowrap [&>td]:pr-4">
                   <td className="py-2.5"><div className="flex items-center gap-2"><Avatar name={b.name} size={26} /> {b.name}</div></td>
                   <td className="py-2.5">{18 + i * 4}</td>
                   <td className="py-2.5">{11 + i * 2}</td>

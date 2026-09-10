@@ -18,6 +18,7 @@ import { ChevronLeft, Mail, Phone, MapPin, ChevronRight, Wallet, Download, Penci
 import { EditEmployeeModal } from "@/components/ems/EditEmployeeModal";
 import { MyProfileEditModal } from "@/components/ems/MyProfileEditModal";
 import { IdCardModal } from "@/components/ems/EmployeeIdCard";
+import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 
 type Tab = "overview" | "projects" | "tasks" | "attendance" | "leaves" | "payroll";
 
@@ -144,76 +145,111 @@ export function EmployeeProfile({
     ...(canSeePay ? [{ key: "payroll" as Tab, label: "Payroll" }] : []),
   ];
 
+  const statusBadge = (
+    <Badge color={emp.status === "active" ? "success" : emp.status === "on_leave" ? "warning" : "slate"} dot>
+      {emp.status === "on_leave" ? "On leave" : emp.status ?? "active"}
+    </Badge>
+  );
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <Link href={backHref} className="inline-flex items-center gap-1 text-sm text-[var(--muted)] hover:text-[var(--foreground)]">
         <ChevronLeft size={16} /> {backLabel}
       </Link>
 
-      {/* Header card */}
-      <Card className="p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <Avatar name={emp.name} size={64} src={emp.avatarUrl} />
-          <div className="flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight">{emp.name}</h1>
-              <Badge color={emp.status === "active" ? "success" : emp.status === "on_leave" ? "warning" : "slate"} dot>
-                {emp.status === "on_leave" ? "On leave" : emp.status ?? "active"}
-              </Badge>
-            </div>
-            <p className="text-sm text-[var(--muted)]">{roleLabel(emp, dept)}</p>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
-              <span className="flex items-center gap-1"><Mail size={13} /> {emp.email}</span>
-              <span className="flex items-center gap-1"><Phone size={13} /> {emp.phone}</span>
-              {emp.location && <span className="flex items-center gap-1"><MapPin size={13} /> {emp.location}</span>}
-            </div>
-          </div>
-          <div className="flex flex-col items-start gap-3 sm:items-end">
-            <Stat label="Attendance" value={`${att.pct}%`} sub="all time" />
-            <div className="flex gap-2">
-              {isSelf && <Button variant="outline" size="sm" onClick={() => setMyEditOpen(true)}><Pencil size={14} /> Edit profile</Button>}
-              {canEdit && !isSelf && <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil size={14} /> Edit</Button>}
-              <Button variant="outline" size="sm" onClick={() => setIdCardOpen(true)}><IdCard size={14} /> ID Card</Button>
-              <Button variant="outline" size="sm" onClick={exportProfile}><Download size={14} /> Download profile</Button>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
-
-      {tab === "overview" && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Card className="p-5 lg:col-span-2">
-            <h3 className="mb-2 text-sm font-semibold">Employment</h3>
-            <InfoRow label="Department"><Badge color={dept?.color ?? "slate"}>{dept?.name}</Badge></InfoRow>
-            <InfoRow label="Role">{roleLabel(emp, dept)}</InfoRow>
-            <InfoRow label="Access level"><span className="capitalize">{emp.accessLevel}</span></InfoRow>
-            <InfoRow label="Reports to">{mgr ? mgr.name : "—"}</InfoRow>
-            <InfoRow label="Employment type"><span className="capitalize">{emp.employmentType?.replace("_", " ")}</span></InfoRow>
-            <InfoRow label="Joined">{emp.joinedAt ? formatDate(emp.joinedAt) : "—"}</InfoRow>
-            {emp.monthlyTargetRevenue ? <InfoRow label="Monthly revenue target">{inr(emp.monthlyTargetRevenue, { compact: true })}</InfoRow> : null}
-          </Card>
-          <div className="space-y-4">
-            <Card className="p-5">
-              <h3 className="mb-3 text-sm font-semibold">Leave balance</h3>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div><div className="text-xl font-bold">{emp.leaveBalance?.casual ?? 0}</div><div className="text-[11px] text-[var(--muted)]">Casual</div></div>
-                <div><div className="text-xl font-bold">{emp.leaveBalance?.sick ?? 0}</div><div className="text-[11px] text-[var(--muted)]">Sick</div></div>
-                <div><div className="text-xl font-bold">{emp.leaveBalance?.earned ?? 0}</div><div className="text-[11px] text-[var(--muted)]">Earned</div></div>
+      <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+        {/* ── LEFT: identity card + calendar (sticky on desktop) ── */}
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          <Card className="overflow-hidden">
+            {/* soft banner behind the avatar */}
+            <div className="h-16 bg-gradient-to-r from-[var(--primary-soft)] to-[var(--surface-2)]" />
+            <div className="-mt-10 flex flex-col items-center px-5 pb-5 text-center">
+              <div className="rounded-full ring-4 ring-[var(--surface)]">
+                <Avatar name={emp.name} size={80} src={emp.avatarUrl} />
               </div>
-            </Card>
-            {canSeePay && emp.ctcAnnual && (
+              <h1 className="mt-3 text-lg font-bold tracking-tight">{emp.name}</h1>
+              <p className="text-sm text-[var(--muted)]">{roleLabel(emp, dept)}</p>
+              <div className="mt-2">{statusBadge}</div>
+
+              {/* contact block */}
+              <div className="mt-4 w-full space-y-2 border-t border-[var(--border)] pt-4 text-left text-sm">
+                {emp.phone && (
+                  <div className="flex items-center gap-2.5 text-[var(--muted)]">
+                    <Phone size={15} className="shrink-0 text-[var(--muted-2)]" />
+                    <span className="truncate text-[var(--foreground)]">{emp.phone}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2.5 text-[var(--muted)]">
+                  <Mail size={15} className="shrink-0 text-[var(--muted-2)]" />
+                  <a href={`mailto:${emp.email}`} className="truncate text-[var(--foreground)] hover:text-[var(--primary)]">{emp.email}</a>
+                </div>
+                {emp.location && (
+                  <div className="flex items-start gap-2.5 text-[var(--muted)]">
+                    <MapPin size={15} className="mt-0.5 shrink-0 text-[var(--muted-2)]" />
+                    <span className="text-[var(--foreground)]">{emp.location}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* all-time attendance highlight */}
+              <div className="mt-4 flex w-full items-center justify-between rounded-lg bg-[var(--surface-2)] px-3 py-2 text-left">
+                <span className="text-xs font-medium text-[var(--muted)]">Attendance</span>
+                <span className="text-sm font-bold text-[var(--foreground)]">{att.pct}% <span className="font-normal text-[var(--muted-2)]">all-time</span></span>
+              </div>
+
+              {/* actions */}
+              <div className="mt-4 grid w-full gap-2">
+                {isSelf && <Button variant="primary" size="sm" className="w-full" onClick={() => setMyEditOpen(true)}><Pencil size={14} /> Edit profile</Button>}
+                {canEdit && !isSelf && <Button variant="primary" size="sm" className="w-full" onClick={() => setEditOpen(true)}><Pencil size={14} /> Edit employee</Button>}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setIdCardOpen(true)}><IdCard size={14} /> ID Card</Button>
+                  <Button variant="outline" size="sm" onClick={exportProfile}><Download size={14} /> Export</Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="flex justify-center p-4">
+            <AttendanceCalendar records={empAtt} />
+          </Card>
+        </aside>
+
+        {/* ── RIGHT: tabbed content ── */}
+        <div className="min-w-0 space-y-4">
+          <Tabs tabs={tabs} active={tab} onChange={setTab} />
+
+          {tab === "overview" && (
+            <div className="space-y-4">
               <Card className="p-5">
-                <h3 className="mb-2 text-sm font-semibold">Compensation</h3>
-                <InfoRow label="Annual CTC">{inr(emp.ctcAnnual, { compact: true })}</InfoRow>
-                <InfoRow label="Monthly gross">{inr((emp.salary?.basic ?? 0) + (emp.salary?.hra ?? 0) + (emp.salary?.special ?? 0))}</InfoRow>
-                {emp.bankLast4 && <InfoRow label="Bank a/c">•••• {emp.bankLast4}</InfoRow>}
+                <h3 className="mb-2 text-sm font-semibold">Employment</h3>
+                <InfoRow label="Department"><Badge color={dept?.color ?? "slate"}>{dept?.name}</Badge></InfoRow>
+                <InfoRow label="Role">{roleLabel(emp, dept)}</InfoRow>
+                <InfoRow label="Access level"><span className="capitalize">{emp.accessLevel}</span></InfoRow>
+                <InfoRow label="Reports to">{mgr ? mgr.name : "—"}</InfoRow>
+                <InfoRow label="Employment type"><span className="capitalize">{emp.employmentType?.replace("_", " ")}</span></InfoRow>
+                <InfoRow label="Joined">{emp.joinedAt ? formatDate(emp.joinedAt) : "—"}</InfoRow>
+                {emp.monthlyTargetRevenue ? <InfoRow label="Monthly revenue target">{inr(emp.monthlyTargetRevenue, { compact: true })}</InfoRow> : null}
               </Card>
-            )}
-          </div>
-        </div>
-      )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Card className="p-5">
+                  <h3 className="mb-3 text-sm font-semibold">Leave balance</h3>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div><div className="text-xl font-bold">{emp.leaveBalance?.casual ?? 0}</div><div className="text-[11px] text-[var(--muted)]">Casual</div></div>
+                    <div><div className="text-xl font-bold">{emp.leaveBalance?.sick ?? 0}</div><div className="text-[11px] text-[var(--muted)]">Sick</div></div>
+                    <div><div className="text-xl font-bold">{emp.leaveBalance?.earned ?? 0}</div><div className="text-[11px] text-[var(--muted)]">Earned</div></div>
+                  </div>
+                </Card>
+                {canSeePay && !!emp.ctcAnnual && (
+                  <Card className="p-5">
+                    <h3 className="mb-2 text-sm font-semibold">Compensation</h3>
+                    <InfoRow label="Annual CTC">{inr(emp.ctcAnnual, { compact: true })}</InfoRow>
+                    <InfoRow label="Monthly gross">{inr((emp.salary?.basic ?? 0) + (emp.salary?.hra ?? 0) + (emp.salary?.special ?? 0))}</InfoRow>
+                    {emp.bankLast4 && <InfoRow label="Bank a/c">•••• {emp.bankLast4}</InfoRow>}
+                  </Card>
+                )}
+              </div>
+            </div>
+          )}
 
       {tab === "projects" && (
         <Card className="overflow-hidden">
@@ -261,7 +297,7 @@ export function EmployeeProfile({
 
       {tab === "attendance" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-6">
             <Card className="p-4"><Stat label={isWorkingNow ? "Working today" : "Worked today"} value={fmtDur(workingTodayMin)} accent={isWorkingNow ? "var(--success)" : undefined} sub={isWorkingNow ? "in progress" : undefined} /></Card>
             <Card className="p-4"><Stat label="Total worked" value={fmtDur(shownAtt.reduce((s, a) => s + (a.workedMinutes ?? 0), 0))} sub={attMonth === "all" ? "all time" : monthLabel(attMonth)} /></Card>
             <Card className="p-4"><Stat label="Present" value={monthSummary.present} accent="var(--success)" /></Card>
@@ -369,6 +405,8 @@ export function EmployeeProfile({
           })}
         </div>
       )}
+        </div>
+      </div>
       {canEdit && !isSelf && <EditEmployeeModal open={editOpen} onClose={() => setEditOpen(false)} employee={emp} />}
       {isSelf && <MyProfileEditModal open={myEditOpen} onClose={() => setMyEditOpen(false)} employee={emp} />}
       <IdCardModal open={idCardOpen} onClose={() => setIdCardOpen(false)} employee={emp} />

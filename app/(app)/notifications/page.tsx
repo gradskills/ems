@@ -35,7 +35,13 @@ export default function NotificationsPage() {
       <PageHeader title="Notifications" subtitle={`${unread} unread`} action={unread > 0 && <Button variant="secondary" onClick={() => markAll(actingUserId)}><Check size={16} /> Mark all read</Button>} />
 
       <Card className="divide-y divide-[var(--border)] overflow-hidden">
-        {mine.length === 0 && <div className="py-12 text-center text-sm text-[var(--muted)]">No notifications.</div>}
+        {mine.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-14 text-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--surface-2)] text-[var(--muted-2)]"><Bell size={20} /></div>
+            <div className="text-sm font-medium">You&apos;re all caught up</div>
+            <div className="text-xs text-[var(--muted)]">Notifications about leaves, tasks, approvals and more will show here.</div>
+          </div>
+        )}
         {mine.map((n) => {
           const Icon = icons[n.kind];
           const inner = (

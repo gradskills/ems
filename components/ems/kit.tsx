@@ -8,7 +8,7 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="text-sm text-[var(--muted)]">{subtitle}</p>}
+        {subtitle && <p className="hidden text-sm text-[var(--muted)] lg:block">{subtitle}</p>}
       </div>
       {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}
     </div>

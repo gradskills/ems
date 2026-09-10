@@ -40,10 +40,10 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Receipt size={22} className="text-[var(--primary)]" /> Invoices</h1>
-          <p className="text-sm text-[var(--muted)]">Create, download and send GST invoices · TDS tracked · {invoices.length} total</p>
+          <p className="hidden text-sm text-[var(--muted)] lg:block">Create, download and send GST invoices · TDS tracked · {invoices.length} total</p>
         </div>
         <Button onClick={() => setCreateOpen(true)}><Plus size={16} /> New invoice</Button>
       </div>

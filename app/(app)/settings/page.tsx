@@ -10,7 +10,7 @@ import { leadById } from "@/lib/seed/leads";
 import {
   printDocument, quotationHtml, invoiceHtml, receiptHtml, auditReportHtml,
 } from "@/lib/documents";
-import type { CompanySettings, AuditReport } from "@/lib/types";
+import type { CompanySettings, AuditReport, Proposal, Invoice } from "@/lib/types";
 import { Check, Upload, Eye, ImageIcon, FileText, Receipt, FileSearch, X, Pencil } from "lucide-react";
 
 type Tab = "identity" | "bank" | "templates" | "rules";
@@ -47,28 +47,52 @@ export default function SettingsPage() {
     reader.readAsDataURL(file);
   }
 
-  // sample data for template previews (uses current unsaved form)
+  // Template previews use the current (unsaved) branding form. When the org has
+  // no real documents yet, we fall back to representative sample records so the
+  // preview always renders — a settings screen should never have dead buttons.
   const sampleLead = leadById("L-101");
+  const nowIso = new Date().toISOString();
+  const plusDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+  const sampleCompany = sampleLead?.company ?? "Sample Client Pvt Ltd";
+
+  const sampleProposal: Proposal = {
+    id: "sample", number: `${form.quotePrefix}/SAMPLE`, leadId: "L-101", ownerId: "", version: 1,
+    status: "draft", createdAt: nowIso, validTill: plusDays(15), openCount: 0,
+    items: [
+      { packageId: "p1", name: "Website Design & Development", billingType: "one_time", sacCode: "998314", qty: 1, unitPrice: 60000, discountPct: 10, gstRate: 18 },
+      { packageId: "p2", name: "Monthly SEO & Social Retainer", billingType: "retainer", sacCode: "998365", qty: 3, unitPrice: 15000, discountPct: 0, gstRate: 18 },
+    ],
+  };
+  const sampleInvoice: Invoice = {
+    id: "sample", number: `${form.invoicePrefix}/SAMPLE`, leadId: "L-101", company: sampleCompany,
+    issuedAt: nowIso, dueAt: plusDays(15), status: "issued", subtotal: 60000, gst: 10800,
+    tdsAmount: 0, total: 70800, received: 0, milestone: "50% advance", recurring: false,
+  };
+  const sampleAudit: AuditReport = {
+    id: "sample", leadId: "L-101", company: sampleCompany, status: "draft", ownerId: "",
+    createdAt: nowIso, score: 68, summary: "A quick digital-health snapshot of your online presence.", items: [],
+  };
+
   function previewQuotation() {
-    const p = proposals[0];
-    if (p) printDocument(quotationHtml(p, leadById(p.leadId), form), "quotation-preview");
+    const p = proposals[0] ?? sampleProposal;
+    printDocument(quotationHtml(p, leadById(p.leadId), form), "quotation-preview");
   }
   function previewInvoice() {
-    const iv = invoices[0];
-    if (iv) printDocument(invoiceHtml(iv, leadById(iv.leadId), form), "invoice-preview");
+    const iv = invoices[0] ?? sampleInvoice;
+    printDocument(invoiceHtml(iv, leadById(iv.leadId), form), "invoice-preview");
   }
   function previewReceipt() {
     printDocument(
       receiptHtml(
-        { id: "prev", receiptNumber: `${form.receiptPrefix}0001`, company: sampleLead?.company ?? "Sample Client", contactName: sampleLead?.contactName, amount: 10000, mode: "upi", at: new Date().toISOString(), note: "Advance project payment", recordedById: "" },
+        { id: "prev", receiptNumber: `${form.receiptPrefix}0001`, company: sampleCompany, contactName: sampleLead?.contactName, amount: 10000, mode: "upi", at: nowIso, note: "Advance project payment", recordedById: "" },
         form
       ),
       "receipt-preview"
     );
   }
   function previewAudit() {
-    const r = auditReports[0];
-    if (r) printDocument(auditReportHtml(withSampleAudit(r), leadById(r.leadId), form), "audit-preview");
+    const r = auditReports[0] ?? sampleAudit;
+    printDocument(auditReportHtml(withSampleAudit(r), leadById(r.leadId), form), "audit-preview");
   }
 
   return (
@@ -186,9 +210,9 @@ export default function SettingsPage() {
             <h3 className="mb-1 text-sm font-semibold">Browse, preview &amp; edit templates</h3>
             <p className="mb-4 text-xs text-[var(--muted)]">Preview with sample data, or open the design editor to redesign the master template (drag text, change fonts &amp; colours, upload images, add pages).</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <TemplateCard icon={<FileSearch size={20} />} title="Audit Report" desc="Multi-page digital audit" onPreview={previewAudit} disabled={!auditReports.length} editHref="/studio/tpl~audit" />
-              <TemplateCard icon={<FileText size={20} />} title="Quotation" desc="Branded quote / proposal" onPreview={previewQuotation} disabled={!proposals.length} editHref="/studio/tpl~quotation" />
-              <TemplateCard icon={<Receipt size={20} />} title="Invoice" desc="GST tax invoice" onPreview={previewInvoice} disabled={!invoices.length} editHref="/studio/tpl~invoice" />
+              <TemplateCard icon={<FileSearch size={20} />} title="Audit Report" desc="Multi-page digital audit" onPreview={previewAudit} editHref="/studio/tpl~audit" />
+              <TemplateCard icon={<FileText size={20} />} title="Quotation" desc="Branded quote / proposal" onPreview={previewQuotation} editHref="/studio/tpl~quotation" />
+              <TemplateCard icon={<Receipt size={20} />} title="Invoice" desc="GST tax invoice" onPreview={previewInvoice} editHref="/studio/tpl~invoice" />
               <TemplateCard icon={<Receipt size={20} />} title="Receipt" desc="Payment receipt" onPreview={previewReceipt} editHref="/studio/tpl~receipt" />
             </div>
           </Card>

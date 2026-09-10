@@ -87,16 +87,19 @@ export default function MediaDashboardPage() {
         <SectionTitle action={<Link href="/campaigns" className="text-xs text-[var(--primary)] hover:underline">All campaigns</Link>}>
           <span className="flex items-center gap-1.5"><BarChart3 size={15} /> Campaign performance</span>
         </SectionTitle>
+        {campaigns.length === 0 ? (
+          <div className="py-8 text-center text-sm text-[var(--muted)]">No campaigns yet.</div>
+        ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[620px] text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <tr className="border-b border-[var(--border)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)] [&>th]:whitespace-nowrap [&>th]:pr-4">
                 <th className="py-2">Campaign</th><th className="py-2">Client</th><th className="py-2">Channel</th><th className="py-2">Reach</th><th className="py-2">Engagement</th><th className="py-2">Leads</th><th className="py-2">Status</th>
               </tr>
             </thead>
             <tbody>
               {campaigns.slice(0, 8).map((c) => (
-                <tr key={c.id} className="border-b border-[var(--border)] last:border-0">
+                <tr key={c.id} className="border-b border-[var(--border)] last:border-0 [&>td]:whitespace-nowrap [&>td]:pr-4">
                   <td className="py-2.5 font-medium">{c.name}</td>
                   <td className="py-2.5 text-[var(--muted)]">{clientName(c.clientId)}</td>
                   <td className="py-2.5 text-[var(--muted)]">{c.channel}</td>
@@ -109,6 +112,7 @@ export default function MediaDashboardPage() {
             </tbody>
           </table>
         </div>
+        )}
       </Card>
     </div>
   );

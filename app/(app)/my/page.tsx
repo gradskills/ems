@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { userById, userName } from "@/lib/seed/users";
 import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Button, Stat, StageBadge } from "@/components/ui/primitives";
 import { ApplyLeaveModal } from "@/components/ems/ApplyLeaveModal";
-import { BreakWidget } from "@/components/ems/BreakWidget";
+import { ClockCard } from "@/components/ems/ClockCard";
 import { CameraCapture } from "@/components/ems/CameraCapture";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
-import { ClockReminderSettings } from "@/components/ems/ClockReminderSettings";
 import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel } from "@/lib/ems";
 import { formatDate, inr } from "@/lib/utils";
-import { LogOut, CalendarPlus, CheckSquare, Clock, MapPin, Camera, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight, AlertTriangle, LifeBuoy } from "lucide-react";
+import { CalendarPlus, CheckSquare, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight, AlertTriangle, LifeBuoy } from "lucide-react";
 
 export default function MyDashboardPage() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -23,37 +22,17 @@ export default function MyDashboardPage() {
   const leaves = useApp((s) => s.leaves);
   const announcements = useApp((s) => s.announcements);
   const clockIn = useApp((s) => s.clockIn);
-  const clockOut = useApp((s) => s.clockOut);
   const requestAttendanceFix = useApp((s) => s.requestAttendanceFix);
   const me = userById(actingUserId)!;
   const dept = departmentById(me.departmentId);
   const isAdmin = me.accessLevel === "admin"; // admins don't clock in or apply leave
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [fixRequested, setFixRequested] = useState<string | null>(null);
-  const [sessionElapsed, setSessionElapsed] = useState("");
   const [clockingIn, setClockingIn] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [clockErr, setClockErr] = useState("");
 
   const today = new Date().toISOString().slice(0, 10);
-  const todayRec = attendance.find((a) => a.userId === me.id && a.date === today);
-
-  useEffect(() => {
-    if (!todayRec?.checkIn || todayRec.checkOut) {
-      setSessionElapsed("");
-      return;
-    }
-    const tick = () => {
-      const diff = Date.now() - Date.parse(todayRec.checkIn!);
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setSessionElapsed(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [todayRec?.checkIn, todayRec?.checkOut]);
 
   const handleClockIn = async () => {
     setCameraOpen(true);
@@ -78,8 +57,6 @@ export default function MyDashboardPage() {
   // Admins get a command-center dashboard (no personal clock-in/leave/tasks).
   if (isAdmin) return <AdminMyDashboard greet={greet} name={me.name} />;
 
-  const clockedInNow = !!todayRec?.checkIn && !todayRec?.checkOut;
-
   // A day gone by where they clocked in but never clocked out (forgot to log
   // out), or the backend flagged the punch for review — only an admin can fix it.
   const unfinished = attendance
@@ -91,9 +68,9 @@ export default function MyDashboardPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{greet}, {me.name.split(" ")[0]}</h1>
-          <p className="text-sm text-[var(--muted)]">{roleLabel(me, dept)}</p>
+          <p className="hidden text-sm text-[var(--muted)] lg:block">{roleLabel(me, dept)}</p>
         </div>
-        <Button variant="secondary" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
+        <Button variant="secondary" className="hidden lg:inline-flex" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
       </div>
 
       <BirthdayBanner />
@@ -125,67 +102,19 @@ export default function MyDashboardPage() {
         </Card>
       )}
 
-      {/* ── Clock in/out + at-a-glance stats + breaks ── */}
+      {/* ── Clock in/out + breaks + attendance log + at-a-glance stats ── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="p-6 lg:col-span-2">
-          <div className="flex flex-col items-center gap-4 py-4 text-center">
-            <div className={`flex h-16 w-16 items-center justify-center rounded-full ${clockedInNow ? "bg-[var(--success-soft)] text-[var(--success)]" : "bg-[var(--primary-soft)] text-[var(--primary)]"}`}>
-              <Clock size={30} />
-            </div>
+        <div className="lg:col-span-2">
+          <ClockCard me={me} onClockIn={handleClockIn} clockingIn={clockingIn} clockErr={clockErr} />
+        </div>
 
-            {!todayRec?.checkIn ? (
-              <>
-                <div>
-                  <div className="text-lg font-semibold">You have not clocked in yet</div>
-                  <div className="text-sm text-[var(--muted)]">Clock in to start your workday. A selfie is required.</div>
-                </div>
-                {clockErr && <div className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs font-medium text-[var(--danger)]">{clockErr}</div>}
-                <Button size="lg" onClick={handleClockIn} disabled={clockingIn}><Camera size={18} /> {clockingIn ? "Clocking in…" : "Clock in with selfie"}</Button>
-              </>
-            ) : !todayRec?.checkOut ? (
-              <>
-                {todayRec.checkInPhoto && (
-                  <img src={todayRec.checkInPhoto} alt="Clock-in selfie" className="h-16 w-16 rounded-full object-cover ring-2 ring-[var(--success)]" style={{ transform: "scaleX(-1)" }} />
-                )}
-                <div className="font-mono text-4xl font-bold tabular-nums">{sessionElapsed || "00:00:00"}</div>
-                <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
-                  Clocked in at {fmtT(todayRec.checkIn)}
-                  {todayRec.status === "wfh" && <Badge color="info" dot>Work from home</Badge>}
-                </div>
-                {todayRec.checkInCoords && (
-                  <div className="flex items-center gap-1.5 text-xs text-[var(--muted-2)]">
-                    <MapPin size={13} /> {todayRec.checkInCoords.lat.toFixed(4)}, {todayRec.checkInCoords.lng.toFixed(4)}
-                    {todayRec.checkInTimezone && <span>({todayRec.checkInTimezone})</span>}
-                  </div>
-                )}
-                <Button size="lg" variant="outline" onClick={clockOut}><LogOut size={18} /> Clock out</Button>
-              </>
-            ) : (
-              <>
-                <Badge color="success" dot>Clocked out for today</Badge>
-                {todayRec.checkInPhoto && (
-                  <img src={todayRec.checkInPhoto} alt="Clock-in selfie" className="h-14 w-14 rounded-full object-cover ring-2 ring-[var(--success)]" style={{ transform: "scaleX(-1)" }} />
-                )}
-                <div className="text-sm text-[var(--muted)]">In {fmtT(todayRec.checkIn)} · Out {fmtT(todayRec.checkOut)}
-                  {todayRec.workedMinutes != null && ` · ${Math.floor(todayRec.workedMinutes / 60)}h ${todayRec.workedMinutes % 60}m worked`}
-                </div>
-              </>
-            )}
-          </div>
-        </Card>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Card className="p-4"><Stat label="Open tasks" value={myTasks.length} /></Card>
-            <Card className="p-4"><Stat label="Attendance" value={`${myAtt.pct}%`} sub="30 days" accent="var(--success)" /></Card>
-            <Card className="p-4"><Stat label="Casual left" value={me.leaveBalance?.casual ?? 0} /></Card>
-            <Card className="p-4"><Stat label="Earned left" value={me.leaveBalance?.earned ?? 0} /></Card>
-          </div>
-          <BreakWidget clockedIn={clockedInNow} />
+        <div className="grid grid-cols-2 gap-3 self-start">
+          <Card className="p-4"><Stat label="Open tasks" value={myTasks.length} /></Card>
+          <Card className="p-4"><Stat label="Attendance" value={`${myAtt.pct}%`} sub="30 days" accent="var(--success)" /></Card>
+          <Card className="p-4"><Stat label="Casual left" value={me.leaveBalance?.casual ?? 0} /></Card>
+          <Card className="p-4"><Stat label="Earned left" value={me.leaveBalance?.earned ?? 0} /></Card>
         </div>
       </div>
-
-      <ClockReminderSettings />
 
       {/* ── My tasks + leave requests + announcements ── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -267,6 +196,8 @@ export default function MyDashboardPage() {
         </Card>
       </div>
 
+      <Button variant="primary" className="w-full lg:hidden" onClick={() => setLeaveOpen(true)}><CalendarPlus size={16} /> Apply leave</Button>
+
       <ApplyLeaveModal open={leaveOpen} onClose={() => setLeaveOpen(false)} />
 
       <CameraCapture
@@ -320,7 +251,7 @@ function AdminMyDashboard({ greet, name }: { greet: string; name: string }) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{greet}, {name.split(" ")[0]}</h1>
-          <p className="text-sm text-[var(--muted)]">Here's what's happening across the company today.</p>
+          <p className="hidden text-sm text-[var(--muted)] lg:block">Here's what's happening across the company today.</p>
         </div>
         <Link href="/attendance"><Button variant="outline"><Users size={16} /> Who's in</Button></Link>
       </div>

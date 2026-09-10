@@ -20,7 +20,12 @@ function Stars({ n }: { n: number }) {
   );
 }
 
-const medalColor = ["text-[#d4af37]", "text-[#9ca3af]", "text-[#cd7f32]"]; // gold, silver, bronze
+// gold / silver / bronze accents (hex chosen to read in both light & dark)
+const medal = [
+  { ring: "ring-[#e0b34d]", badge: "bg-[#e0b34d]", order: "sm:order-2", raise: "sm:-translate-y-4", avatar: 68 },
+  { ring: "ring-[#a9b0bd]", badge: "bg-[#a9b0bd]", order: "sm:order-1", raise: "", avatar: 56 },
+  { ring: "ring-[#cd7f32]", badge: "bg-[#cd7f32]", order: "sm:order-3", raise: "", avatar: 56 },
+];
 
 export default function LeaderboardPage() {
   const employees = useApp((s) => s.employees);
@@ -42,20 +47,21 @@ export default function LeaderboardPage() {
         <Card className="p-10 text-center text-sm text-[var(--muted)]">No attendance data yet.</Card>
       ) : (
         <>
-          {/* Podium — top 3 */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* Podium — top 3 (medal badges; #1 centered & raised on desktop) */}
+          <div className="stagger grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
             {podium.map((r) => {
               const d = departmentById(r.user.departmentId);
               const isMe = r.user.id === actingUserId;
+              const m = medal[r.rank - 1];
               return (
-                <Link key={r.user.id} href={`/employees/${r.user.id}`}>
-                  <Card className={`lift relative flex flex-col items-center gap-1 p-5 text-center ${isMe ? "border-[var(--primary)]" : ""}`}>
-                    <Trophy size={20} className={`absolute left-4 top-4 ${medalColor[r.rank - 1]}`} />
-                    <span className="absolute right-4 top-4 text-lg font-bold text-[var(--muted-2)]">#{r.rank}</span>
-                    <Avatar name={r.user.name} size={56} src={r.user.avatarUrl} />
+                <Link key={r.user.id} href={`/employees/${r.user.id}`} className={m.order}>
+                  <Card className={`lift relative flex flex-col items-center gap-1 p-5 pt-7 text-center ring-2 ${m.ring} ${m.raise} ${isMe ? "border-[var(--primary)]" : ""}`}>
+                    <span className={`absolute -top-3.5 left-1/2 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full text-xs font-bold text-white shadow-[var(--shadow-sm)] ${m.badge}`}>{r.rank}</span>
+                    {r.rank === 1 && <Trophy size={18} className="absolute right-4 top-4 text-[#e0b34d]" />}
+                    <Avatar name={r.user.name} size={m.avatar} src={r.user.avatarUrl} />
                     <div className="mt-1 font-semibold">{r.user.name}{isMe && " (you)"}</div>
                     <div className="text-xs text-[var(--muted)]">{roleLabel(r.user, d)}</div>
-                    <div className="mt-1 text-2xl font-bold">{r.pct}%</div>
+                    <div className="mt-1 text-2xl font-bold tabular-nums">{r.pct}%</div>
                     <Stars n={r.rating} />
                     {r.streak > 1 && <div className="mt-1 flex items-center gap-1 text-xs text-[var(--warning)]"><Flame size={13} /> {r.streak}-day streak</div>}
                   </Card>

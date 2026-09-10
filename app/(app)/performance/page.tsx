@@ -32,7 +32,7 @@ export default function PerformancePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">My performance</h1>
-        <p className="text-sm text-[var(--muted)]">This month · {me.name}</p>
+        <p className="hidden text-sm text-[var(--muted)] lg:block">This month · {me.name}</p>
       </div>
 
       {/* Commission — the adoption driver */}

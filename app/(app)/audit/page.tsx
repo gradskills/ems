@@ -37,7 +37,7 @@ export default function AuditPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><ShieldCheck size={22} className="text-[var(--primary)]" /> Log History</h1>
-          <p className="text-sm text-[var(--muted)]">Every create, edit, delete, export and recording access — permanently recorded.</p>
+          <p className="hidden text-sm text-[var(--muted)] lg:block">Every create, edit, delete, export and recording access — permanently recorded.</p>
         </div>
         <Badge color="success"><Lock size={12} /> Append-only · tamper-evident</Badge>
       </div>

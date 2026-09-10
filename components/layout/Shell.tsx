@@ -13,7 +13,7 @@ import { ClockGate } from "@/components/ems/ClockGate";
 import { ClockReminderRunner } from "@/components/ems/ClockReminderRunner";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
-import { ChevronsUpDown, Sparkles, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass } from "lucide-react";
+import { ChevronsUpDown, Sparkles, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass, Settings as SettingsIcon, CircleUser } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // routes only managers/admin may open; employees are bounced to /my
@@ -73,8 +73,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       : viewLens === "management"
         ? undefined
         : departments.find((d) => d.id === viewLens);
+  const mobileNavPref = useApp((s) => s.mobileNav);
   const nav = navFor(user, effectiveDept);
-  const mNav = mobileNavFor(user, effectiveDept);
+  const mNav = mobileNavFor(user, effectiveDept, mobileNavPref);
   const workLabel = workspaceLabel(user, effectiveDept);
   const overview = nav.filter((n) => n.group === "overview");
   const work = nav.filter((n) => n.group === "work");
@@ -160,7 +161,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Main */}
       <div className="lg:pl-60">
         <TopBar onMenuClick={() => setMobileOpen(true)} />
-        <main className="mx-auto max-w-7xl px-4 pb-24 pt-5 sm:px-6 lg:pb-10">{children}</main>
+        <main key={pathname} className="page-enter mx-auto max-w-7xl px-4 pb-24 pt-5 sm:px-6 lg:pb-10">{children}</main>
       </div>
 
       {/* Mobile bottom nav */}
@@ -352,6 +353,12 @@ function RoleSwitcher() {
         <div className="absolute bottom-full left-3 right-3 mb-1 max-h-[70vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)] animate-in">
           <div className="border-b border-[var(--border)] p-1">
             <button
+              onClick={() => { setOpen(false); router.push("/account/settings"); }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
+            >
+              <SettingsIcon size={16} className="text-[var(--muted)]" /> Settings
+            </button>
+            <button
               onClick={() => { setOpen(false); router.push("/account/password"); }}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
             >
@@ -419,10 +426,79 @@ function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <ThemeToggle />
         <NotificationBell />
         <div className="lg:hidden">
-          <Avatar name={user.name} size={32} src={user.avatarUrl} />
+          <ProfileMenu />
         </div>
       </div>
     </header>
+  );
+}
+
+// Mobile-only account menu behind the top-right avatar. Desktop has the same
+// actions in the sidebar RoleSwitcher; on mobile the avatar was previously inert,
+// leaving no way to reach Settings / change password / sign out.
+function ProfileMenu() {
+  const router = useRouter();
+  const actingUserId = useApp((s) => s.actingUserId);
+  const setActingUser = useApp((s) => s.setActingUser);
+  const logout = useApp((s) => s.logout);
+  const user = userById(actingUserId)!;
+  const dept = departmentById(user.departmentId);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen((o) => !o)} aria-label="Account menu" className="flex items-center rounded-full ring-offset-2 ring-offset-[var(--surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">
+        <Avatar name={user.name} size={32} src={user.avatarUrl} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)] animate-in">
+          <div className="flex items-center gap-2.5 border-b border-[var(--border)] p-3">
+            <Avatar name={user.name} size={36} src={user.avatarUrl} />
+            <div className="min-w-0 leading-tight">
+              <div className="truncate text-sm font-semibold">{user.name}</div>
+              <div className="truncate text-xs text-[var(--muted)]">{roleLabel(user, dept)}</div>
+            </div>
+          </div>
+          <div className="p-1">
+            <button onClick={() => { setOpen(false); router.push("/my/profile"); }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--surface-2)]">
+              <CircleUser size={16} className="text-[var(--muted)]" /> My profile
+            </button>
+            <button onClick={() => { setOpen(false); router.push("/account/settings"); }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--surface-2)]">
+              <SettingsIcon size={16} className="text-[var(--muted)]" /> Settings
+            </button>
+            <button onClick={() => { setOpen(false); router.push("/account/password"); }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--surface-2)]">
+              <KeyRound size={16} className="text-[var(--muted)]" /> Change password
+            </button>
+            <button onClick={() => { setOpen(false); logout(); router.replace("/login"); }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-[var(--danger)] hover:bg-[var(--surface-2)]">
+              <LogOut size={16} /> Sign out
+            </button>
+          </div>
+          {user.accessLevel === "admin" && (
+            <div className="max-h-64 overflow-y-auto border-t border-[var(--border)]">
+              <div className="sticky top-0 bg-[var(--surface-2)] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Switch account (admin)</div>
+              {users.map((u) => {
+                const ud = departmentById(u.departmentId);
+                return (
+                  <button key={u.id} onClick={() => { setActingUser(u.id); setOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-2)]">
+                    <Avatar name={u.name} size={26} src={u.avatarUrl} />
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <div className="truncate text-sm font-medium">{u.name}</div>
+                      <div className="truncate text-[11px] text-[var(--muted)]">{roleLabel(u, ud)}</div>
+                    </div>
+                    {u.id === actingUserId && <Check size={16} className="shrink-0 text-[var(--primary)]" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

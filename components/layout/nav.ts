@@ -145,9 +145,39 @@ export function navFor(user: User, dept: Department | undefined): NavItem[] {
   return navItems.filter((n) => n.when(ctx));
 }
 
-export function mobileNavFor(user: User, dept: Department | undefined): NavItem[] {
-  const ctx = contextFor(user, dept);
-  return navItems.filter((n) => n.mobile && n.when(ctx)).slice(0, 5);
+// Per-role importance/usage ranking for the bottom nav. The first few available
+// hrefs become each role's sensible default bar; users can override via Settings.
+// Anything not listed sorts after these in its natural declaration order.
+const MOBILE_PRIORITY: Record<AccessLevel, string[]> = {
+  employee: ["/my", "/today", "/tasks", "/pipeline", "/leads", "/projects", "/clients", "/tickets", "/my/leaves", "/announcements", "/performance", "/leaderboard", "/my/profile"],
+  manager: ["/overview", "/my", "/employees", "/attendance", "/tasks", "/leaves", "/approvals", "/meetings", "/tickets"],
+  admin: ["/my", "/employees", "/attendance", "/approvals", "/overview", "/leaves", "/payroll", "/tasks", "/departments"],
+};
+
+function orderedForRole(user: User, items: NavItem[]): NavItem[] {
+  const pri = MOBILE_PRIORITY[user.accessLevel] ?? [];
+  const idx = (h: string) => {
+    const i = pri.indexOf(h);
+    return i === -1 ? pri.length + 1 : i;
+  };
+  return [...items].sort((a, b) => idx(a.href) - idx(b.href));
+}
+
+// The pool of pages a user may pin to the bottom bar in the current workspace.
+export function mobileNavPool(user: User, dept: Department | undefined): NavItem[] {
+  return orderedForRole(user, navFor(user, dept));
+}
+
+// Resolve the bottom-bar items: the user's saved order/selection (filtered to
+// what's actually available in this workspace), else the role-prioritized default.
+export function mobileNavFor(user: User, dept: Department | undefined, prefHrefs?: string[] | null): NavItem[] {
+  const all = navFor(user, dept);
+  const byHref = new Map(all.map((n) => [n.href, n] as const));
+  if (prefHrefs && prefHrefs.length) {
+    const picked = prefHrefs.map((h) => byHref.get(h)).filter((n): n is NavItem => !!n);
+    if (picked.length) return picked.slice(0, 5);
+  }
+  return orderedForRole(user, all).slice(0, 5);
 }
 
 // Label for the "work" nav group — brands the workspace by the active lens/role

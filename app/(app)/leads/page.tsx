@@ -80,7 +80,7 @@ export default function LeadsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{role === "bda" ? "My leads" : "All leads"}</h1>
-          <p className="text-sm text-[var(--muted)]">
+          <p className="hidden text-sm text-[var(--muted)] lg:block">
             {scoped.length} leads{role !== "bda" && " across the team"}
           </p>
         </div>

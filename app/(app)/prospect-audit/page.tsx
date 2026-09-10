@@ -98,7 +98,7 @@ function Audit() {
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
           <Sparkles size={22} className="text-[var(--primary)]" /> Prospect audit
         </h1>
-        <p className="text-sm text-[var(--muted)]">
+        <p className="hidden text-sm text-[var(--muted)] lg:block">
           Check a business&apos;s digital health before you call — turn gaps into a specific opening line.
         </p>
       </div>
@@ -119,11 +119,11 @@ function Audit() {
             {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} Audit
           </Button>
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-[var(--muted-2)]">Try:</span>
-          {prospectAudits.map((p) => (
-            <button key={p.id} onClick={() => run(p.company)} className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] hover:bg-[var(--border)]">
-              {p.company}
+          {(prospectAudits.length ? prospectAudits.map((p) => p.company) : ["Cafe Mocha", "FitZone Gym", "Sharma Dental Clinic"]).map((company) => (
+            <button key={company} onClick={() => run(company)} className="rounded-full bg-[var(--surface-2)] px-2.5 py-1 text-[11px] font-medium hover:bg-[var(--border)]">
+              {company}
             </button>
           ))}
         </div>

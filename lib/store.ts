@@ -114,6 +114,8 @@ const nid = (p: string) => `${p}-${++idc}`;
 // sidebar collapse state is remembered per user, so switching roles/users
 // restores each one's own open/closed groups instead of sharing/blurring one map
 const navKey = (userId: string) => `navCollapsed:${userId}`;
+// bottom-nav customization is remembered per user too (order + which items show)
+const mobileNavKey = (userId: string) => `mobileNav:${userId}`;
 
 interface AppState {
   // ── who is using the app (role switcher) ──
@@ -127,6 +129,9 @@ interface AppState {
   navCollapsed: Record<string, boolean>;
   toggleNavGroup: (label: string) => void;
   hydrateNav: () => void; // restore this user's collapsed groups from localStorage
+  // ── bottom nav: user's custom order/selection (null = role default) ──
+  mobileNav: string[] | null;
+  setMobileNav: (hrefs: string[] | null) => void;
 
   // ── portal session (prototype auth) ──
   authUserId: string | null; // the signed-in account; null until login/hydrate
@@ -483,8 +488,26 @@ export const useApp = create<AppState>((rawSet, get) => {
       } catch { /* ignore */ }
     }
     if (!loaded || typeof loaded !== "object") loaded = {};
-    set({ navCollapsed: loaded });
+    let mobileNav: string[] | null = null;
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(mobileNavKey(get().actingUserId));
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) mobileNav = parsed;
+      } catch { /* ignore */ }
+    }
+    set({ navCollapsed: loaded, mobileNav });
   },
+  mobileNav: null,
+  setMobileNav: (hrefs) => set((s) => {
+    if (typeof window !== "undefined") {
+      try {
+        if (hrefs && hrefs.length) localStorage.setItem(mobileNavKey(s.actingUserId), JSON.stringify(hrefs));
+        else localStorage.removeItem(mobileNavKey(s.actingUserId));
+      } catch { /* ignore */ }
+    }
+    return { mobileNav: hrefs && hrefs.length ? hrefs : null };
+  }),
 
   // ── portal session ──
   authUserId: null,

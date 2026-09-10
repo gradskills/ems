@@ -57,7 +57,7 @@ export default function DashboardPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{role === "manager" ? "Team dashboard" : "Sales dashboard"}</h1>
-        <p className="text-sm text-[var(--muted)]">{bdas.length} BDAs · live oversight</p>
+        <p className="hidden text-sm text-[var(--muted)] lg:block">{bdas.length} BDAs · live oversight</p>
       </div>
 
       {/* KPIs */}
@@ -127,7 +127,7 @@ export default function DashboardPage() {
           <h2 className="flex items-center gap-2 text-sm font-semibold"><Users2 size={16} /> BDA activity scorecard</h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--surface-2)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                 <th className="px-4 py-2.5">BDA</th>

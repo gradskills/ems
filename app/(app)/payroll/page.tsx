@@ -47,11 +47,11 @@ export default function PayrollPage() {
     <div className="space-y-5">
       <PageHeader
         title="Payroll"
-        subtitle={`${rows.length} payslips · ${monthLabel(month)}`}
+        subtitle={`${rows.length} payslips${month ? ` · ${monthLabel(month)}` : ""}`}
         action={
           <div className="flex w-full items-center gap-2 sm:w-auto">
-            <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm sm:flex-none">
-              {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+            <select value={month} onChange={(e) => setMonth(e.target.value)} disabled={!months.length} className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm disabled:opacity-50 sm:flex-none">
+              {months.length ? months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>) : <option value="">No payslips yet</option>}
             </select>
             <Button variant="outline" onClick={exportCSV} disabled={!rows.length} className="shrink-0"><Download size={16} /> Export</Button>
           </div>
@@ -66,6 +66,9 @@ export default function PayrollPage() {
       </div>
 
       <Card className="overflow-hidden">
+        {rows.length === 0 ? (
+          <div className="py-12 text-center text-sm text-[var(--muted)]">{months.length ? "No payslips for this month." : "No payslips generated yet."}</div>
+        ) : (
         <TableShell head={<><th className="px-4 py-3">Employee</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Gross</th><th className="px-4 py-3">Deductions</th><th className="px-4 py-3">Net pay</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></>}>
           {rows.map((p) => {
             const u = userById(p.userId);
@@ -118,6 +121,7 @@ export default function PayrollPage() {
             );
           })}
         </TableShell>
+        )}
       </Card>
     </div>
   );

@@ -52,7 +52,7 @@ export default function TodayPage() {
             <Sun size={14} /> {formatDate(new Date().toISOString())}
           </div>
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight">Good morning, {me.name.split(" ")[0]}</h1>
-          <p className="text-sm text-[var(--muted)]">
+          <p className="hidden text-sm text-[var(--muted)] lg:block">
             {queue.length} leads need you today. Work the list top to bottom — highest priority first.
           </p>
         </div>
@@ -79,6 +79,13 @@ export default function TodayPage() {
           Today&apos;s call list
         </SectionTitle>
         <div className="space-y-2.5">
+          {queue.length === 0 && (
+            <Card className="flex flex-col items-center gap-2 py-12 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--success-soft)] text-[var(--success)]"><PhoneCall size={20} /></div>
+              <div className="text-sm font-medium">You&apos;re all caught up</div>
+              <div className="max-w-xs text-xs text-[var(--muted)]">No leads need a call right now. New and follow-up-due leads will appear here.</div>
+            </Card>
+          )}
           {queue.map((lead) => {
             const meta = lead.queueReason ? reasonMeta[lead.queueReason.kind] : reasonMeta.followup_due;
             const RIcon = meta.icon;

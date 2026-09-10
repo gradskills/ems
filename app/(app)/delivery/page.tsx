@@ -30,8 +30,16 @@ export default function DeliveryPage() {
     <div className="space-y-5">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Boxes size={22} className="text-[var(--primary)]" /> Delivery</h1>
-        <p className="text-sm text-[var(--muted)]">Won deals in production — onboarding, deliverables tracked against what was sold, and client sign-off.</p>
+        <p className="hidden text-sm text-[var(--muted)] lg:block">Won deals in production — onboarding, deliverables tracked against what was sold, and client sign-off.</p>
       </div>
+
+      {delivery.length === 0 && (
+        <Card className="flex flex-col items-center gap-2 py-14 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--surface-2)] text-[var(--muted-2)]"><Boxes size={22} /></div>
+          <div className="text-sm font-medium">No projects in delivery yet</div>
+          <div className="max-w-xs text-xs text-[var(--muted)]">Won deals move here for onboarding and delivery tracking. Close a deal in the pipeline to get started.</div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {delivery.map((d) => {
