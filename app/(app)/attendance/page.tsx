@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
+import { localDateISO } from "@/lib/utils";
 import { userById } from "@/lib/seed/users";
 import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, ProgressBar, Stat } from "@/components/ui/primitives";
@@ -11,7 +12,7 @@ import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 import { AttendanceEditModal } from "@/components/ems/AttendanceEditModal";
 import {
   visibleEmployees, attendanceSummary, attendanceLabel, attendanceColor,
-  activeBreak, breakTypeLabel,
+  activeBreak, breakTypeLabel, needsAttendanceReview,
 } from "@/lib/ems";
 import type { AttendanceRecord, User, CompanyDay, CompanyDayType } from "@/lib/types";
 import { MapPin, Clock, Camera, Table2, CalendarDays, Users, Coffee, ChevronRight, Pencil, CalendarCog, PartyPopper, Briefcase, AlertTriangle, Info, Trash2, Plus } from "lucide-react";
@@ -49,7 +50,7 @@ export default function AttendancePage() {
   const saveCompanyDay = useApp((s) => s.saveCompanyDay);
   const removeCompanyDay = useApp((s) => s.removeCompanyDay);
   const viewer = userById(actingUserId)!;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const isAdmin = viewer.accessLevel === "admin";
   const lensDept = viewLens !== "management" ? viewLens : null;
 
@@ -104,19 +105,16 @@ export default function AttendancePage() {
   const count = (k: string) => withToday.filter((r) => r.st.key === k).length;
   const inToday = withToday.filter((r) => r.st.key !== "notin").length;
 
-  // Admin: past days an employee couldn't finish — clocked in but never clocked
-  // out, or the backend flagged the punch for review. These are exactly the days
-  // employees ask admins to fix via "Contact admin". We key them by employee so
-  // each attendance row can show a "needs review" mark beside its edit pencil,
+  // Admin: past days an employee forgot to clock out AND asked an admin to fix
+  // via "Contact admin". A forgotten punch-out with no request quietly counts as
+  // a half-day, so it does NOT appear here. We key the flagged days by employee
+  // so each attendance row can show a "needs review" mark beside its edit pencil,
   // and the editor can list every pending day for that person (latest first).
   const reviewByUser = useMemo(() => {
     const m = new Map<string, AttendanceRecord[]>();
     if (!isAdmin) return m;
     for (const a of attendance) {
-      if (
-        a.date < today &&
-        ((a.checkIn && !a.checkOut) || a.status === "needs_review" || a.status === "pending_punchout")
-      ) {
+      if (needsAttendanceReview(a, today)) {
         const arr = m.get(a.userId) ?? [];
         arr.push(a);
         m.set(a.userId, arr);

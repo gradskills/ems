@@ -135,13 +135,22 @@ function attStatus(s: unknown): AttendanceStatus {
   return (ATT_STATUSES.has(v) ? v : "present") as AttendanceStatus;
 }
 const num = (v: unknown): number | undefined => (v == null ? undefined : Number(v));
+// `current_break_start_time` is a `timestamp` (no zone) column holding UTC wall
+// time. Without an offset, Date.parse reads it as LOCAL time — 5h30m early in
+// IST — which made every reloaded break look 330 minutes overdue and inflated
+// total break minutes when it ended. Pin naive values to UTC.
+const utcIso = (v: unknown): string | undefined => {
+  if (v == null) return undefined;
+  const s = String(v);
+  return /(Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : `${s}Z`;
+};
 
 export function attendanceToApp(row: Row): AttendanceRecord {
   const lat = num(row.punch_in_latitude);
   const lng = num(row.punch_in_longitude);
   const hours = num(row.hours_worked);
   const onBreak = Boolean(row.on_break);
-  const curBreak = row.current_break_start_time as string | null;
+  const curBreak = utcIso(row.current_break_start_time);
   return {
     id: String(row.id),
     userId: String(row.user_id),

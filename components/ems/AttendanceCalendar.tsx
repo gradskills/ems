@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/lib/types";
-import { attendanceLabel } from "@/lib/ems";
+import { attendanceLabel, effectiveAttendanceStatus } from "@/lib/ems";
 import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 
 // day-cell colour per status (soft fill + text)
@@ -35,11 +35,13 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
   const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const isCurrentMonth = year === now.getFullYear() && mon === now.getMonth();
 
+  // effective status: a past forgotten punch-out reads as a half-day
+  const effOf = (r: AttendanceRecord) => effectiveAttendanceStatus(r, todayStr);
   const byDate = useMemo(() => new Map(records.map((r) => [r.date, r])), [records]);
   const monthRecs = records.filter((r) => r.date.slice(0, 7) === monthKey);
-  const presentCount = monthRecs.filter((r) => r.status === "present" || r.status === "wfh").length;
-  const leaveCount = monthRecs.filter((r) => r.status === "leave").length;
-  const absentCount = monthRecs.filter((r) => r.status === "absent").length;
+  const presentCount = monthRecs.filter((r) => effOf(r) === "present" || effOf(r) === "wfh").length;
+  const leaveCount = monthRecs.filter((r) => effOf(r) === "leave").length;
+  const absentCount = monthRecs.filter((r) => effOf(r) === "absent").length;
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < startWeekday; i++) cells.push(null);
@@ -79,7 +81,7 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
           if (d === null) return <div key={i} />;
           const dateStr = `${year}-${pad(mon + 1)}-${pad(d)}`;
           const rec = byDate.get(dateStr);
-          const st = rec ? statusStyle[rec.status] : null;
+          const st = rec ? statusStyle[effOf(rec)] : null;
           const isToday = dateStr === todayStr;
           const isFuture = dateStr > todayStr;
           return (
@@ -87,7 +89,7 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
               key={i}
               onClick={() => rec && setSelected(selected?.id === rec.id ? null : rec)}
               disabled={!rec}
-              title={rec ? `${d} — ${attendanceLabel[rec.status]}` : ""}
+              title={rec ? `${d} — ${attendanceLabel[effOf(rec)]}` : ""}
               className={`relative flex aspect-square items-center justify-center rounded-sm border text-[10px] transition-colors ${
                 isToday ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]"
               } ${rec ? "cursor-pointer hover:brightness-95" : isFuture ? "opacity-40" : ""} ${selected?.id === rec?.id ? "ring-1 ring-[var(--primary)]" : ""}`}
@@ -114,7 +116,7 @@ export function AttendanceCalendar({ records, legendStatuses }: { records: Atten
       {selected && (
         <div className="mt-1.5 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-1.5 text-[10px]">
           <div className="mb-1 font-semibold">
-            {new Date(selected.date).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · {attendanceLabel[selected.status]}
+            {new Date(selected.date).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · {attendanceLabel[effOf(selected)]}
           </div>
           {selected.checkIn && (
             <div className="text-[var(--muted)]">In {fmtTime(selected.checkIn)}{selected.checkOut ? ` → Out ${fmtTime(selected.checkOut)}` : ""}

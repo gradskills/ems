@@ -20,12 +20,12 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
       onClick={() => onChange(!on)}
       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-[var(--primary)]" : "bg-[var(--border-strong)]"}`}
     >
-      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+      <span className="absolute h-5 w-5 rounded-full bg-white shadow transition-[left]" style={{ top: 2, left: on ? 22 : 2 }} />
     </button>
   );
 }
 
-const timeCls = "h-9 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-40";
+const timeCls = "h-9 shrink-0 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-40";
 
 export function ClockReminderSettings() {
   const actingUserId = useApp((s) => s.actingUserId);
@@ -82,23 +82,23 @@ export function ClockReminderSettings() {
       </div>
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="min-w-0">
             <div className="text-sm font-medium">Remind me to clock in</div>
             <div className="text-xs text-[var(--muted)]">Fires if you haven&apos;t clocked in by this time</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <input type="time" className={timeCls} value={cfg.clockInTime} disabled={!cfg.clockInEnabled} onChange={(e) => update({ clockInTime: e.target.value })} />
             <Toggle on={cfg.clockInEnabled} onChange={(v) => update({ clockInEnabled: v })} label="Toggle clock-in reminder" />
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="min-w-0">
             <div className="text-sm font-medium">Remind me to clock out</div>
             <div className="text-xs text-[var(--muted)]">Fires if you clocked in but not out</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <input type="time" className={timeCls} value={cfg.clockOutTime} disabled={!cfg.clockOutEnabled} onChange={(e) => update({ clockOutTime: e.target.value })} />
             <Toggle on={cfg.clockOutEnabled} onChange={(v) => update({ clockOutEnabled: v })} label="Toggle clock-out reminder" />
           </div>

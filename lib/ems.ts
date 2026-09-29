@@ -15,6 +15,7 @@ import type {
   AttendanceRecord,
 } from "@/lib/types";
 import { reportsOf } from "@/lib/seed/users";
+import { localDateISO } from "@/lib/utils";
 
 type BadgeColor = "slate" | "primary" | "success" | "warning" | "danger" | "info" | "purple";
 
@@ -112,12 +113,34 @@ export const attendanceColor: Record<AttendanceStatus, BadgeColor> = {
   pending_punchout: "info",
 };
 
+// ── forgotten clock-out handling ──
+// A past day where someone clocked in but never clocked out (or the backend
+// flagged the punch). By policy this is given the benefit of the doubt and
+// counts as a HALF-DAY automatically — no admin action needed. Only if the
+// employee reaches out (see AttendanceRecord.fixRequested) does it surface to
+// admins as a day to review and correct.
+export function forgotPunchOut(a: AttendanceRecord, today: string): boolean {
+  if (a.date >= today) return false; // today's open shift is "working now", not forgotten
+  return (!!a.checkIn && !a.checkOut) || a.status === "needs_review" || a.status === "pending_punchout";
+}
+// The status to DISPLAY and count for a record: a forgotten punch-out reads as a
+// half-day until an admin corrects it.
+export function effectiveAttendanceStatus(a: AttendanceRecord, today: string): AttendanceStatus {
+  return forgotPunchOut(a, today) ? "half_day" : a.status;
+}
+// A day an admin should review: forgotten punch-out AND the employee asked for a fix.
+export function needsAttendanceReview(a: AttendanceRecord, today: string): boolean {
+  return forgotPunchOut(a, today) && !!a.fixRequested;
+}
+
 export function attendanceSummary(records: AttendanceRecord[]) {
-  const present = records.filter((r) => r.status === "present" || r.status === "wfh").length;
-  const half = records.filter((r) => r.status === "half_day").length;
-  const leave = records.filter((r) => r.status === "leave").length;
-  const absent = records.filter((r) => r.status === "absent").length;
-  const working = records.filter((r) => r.status !== "week_off" && r.status !== "holiday").length;
+  const today = localDateISO();
+  const eff = records.map((r) => effectiveAttendanceStatus(r, today));
+  const present = eff.filter((s) => s === "present" || s === "wfh").length;
+  const half = eff.filter((s) => s === "half_day").length;
+  const leave = eff.filter((s) => s === "leave").length;
+  const absent = eff.filter((s) => s === "absent").length;
+  const working = eff.filter((s) => s !== "week_off" && s !== "holiday").length;
   const pct = working ? Math.round(((present + half * 0.5) / working) * 100) : 0;
   return { present, half, leave, absent, working, pct };
 }

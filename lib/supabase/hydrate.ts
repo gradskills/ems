@@ -2,89 +2,43 @@
 
 // ─────────────────────────────────────────────────────────────
 // Reads the whole app dataset out of Supabase and shapes it into the
-// zustand store's slices. On first run, empty sales/CRM/QIMS tables are
-// seeded once from the app's demo fixtures (remapped onto the real users)
-// so every screen stays populated — after that it's real, editable data.
+// zustand store's slices. Every table is read in parallel — the database is
+// ~200ms away, so reading ~30 tables one after another cost 6–8 seconds on
+// every page load. Nothing is seeded: the database is the only source of data.
 //
-// The real HR tables (users, attendance, leave_requests) are NEVER seeded;
-// their existing rows are the source of truth.
+// Attendance selfies (base64) are ~95% of the payload, so they're loaded
+// separately by `hydrateAttendancePhotos` after the app is already usable.
 // ─────────────────────────────────────────────────────────────
 import { getSupabase } from "@/lib/supabase/client";
-import { userToApp, attendanceToApp, leaveToApp, genericToApp, genericToRow } from "@/lib/supabase/map";
+import { userToApp, attendanceToApp, leaveToApp, genericToApp } from "@/lib/supabase/map";
 import { setUsers, elevate } from "@/lib/seed/users";
 import type { User } from "@/lib/types";
-
-import { leads as seedLeads } from "@/lib/seed/leads";
-import { callInsights as seedInsights, calls as seedCalls } from "@/lib/seed/calls";
-import { activities as seedActivities } from "@/lib/seed/activities";
-import { auditLog as seedAudit } from "@/lib/seed/audit";
-import { proposals as seedProposals, invoices as seedInvoices } from "@/lib/seed/proposals";
-import { deliveryProjects as seedDelivery } from "@/lib/seed/prospects";
 import { departments as seedDepartments, companySettings as seedCompany, approvalRules as seedApprovalRules } from "@/lib/seed/org";
-import { payslips as seedPayslips } from "@/lib/seed/hr";
-import { tasks as seedTasks } from "@/lib/seed/tasks";
-import { projects as seedProjects } from "@/lib/seed/projects";
-import { mediaClients as seedClients, campaigns as seedCampaigns, contentPosts as seedContent } from "@/lib/seed/media";
-import { tickets as seedTickets, notifications as seedNotifications, announcements as seedAnnouncements } from "@/lib/seed/workplace";
-import { auditReports as seedAuditReports } from "@/lib/seed/auditReports";
-import { briefs as seedBriefs } from "@/lib/seed/briefs";
-import { forms as seedForms, formResponses as seedFormResponses } from "@/lib/seed/forms";
-import { meetings as seedMeetings } from "@/lib/seed/meetings";
 
-// Old demo user id → a real DB user id (stringified). Any string matching a
-// left-hand key anywhere inside a seed object is rewritten before it's stored.
-const OLD_TO_REAL: Record<string, string> = {
-  "u-admin": "1",   // Abhijeet (founder/admin)
-  "u-mgr": "2",     // Vishwas (founder/admin) — sales lead
-  "u-priya": "9",   // Nidhi (BDA)
-  "u-arjun": "10",  // Hafsa (BDA)
-  "u-fatima": "9",  // Nidhi (BDA)
-  "u-vikram": "1",  // Abhijeet — tech lead
-  "u-aditya": "4",  // Yalaga (tech)
-  "u-neha": "5",    // Mois (tech)
-  "u-karan": "6",   // Vinay (tech)
-  "u-ananya": "2",  // Vishwas — media lead
-  "u-rahul": "7",   // Manvith (tech)
-  "u-isha": "3",    // Hemanth (tech)
-  "u-meera": "1",   // Abhijeet — HR/ops
-};
-
-function remap<T>(v: T): T {
-  if (typeof v === "string") return (OLD_TO_REAL[v] ?? v) as unknown as T;
-  if (Array.isArray(v)) return v.map(remap) as unknown as T;
-  if (v && typeof v === "object") {
-    const o: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v)) o[k] = remap(val);
-    return o as unknown as T;
-  }
-  return v;
-}
-
-// Generic array slices: { store slice → { table, seed } }. Read with the
-// generic mapper; seeded (remapped) when the table is empty.
-const SEEDABLE: { slice: string; table: string; seed: unknown[] }[] = [
-  { slice: "leads", table: "leads", seed: seedLeads },
-  { slice: "insights", table: "call_insights", seed: seedInsights },
-  { slice: "activities", table: "activities", seed: seedActivities },
-  { slice: "audit", table: "app_audit", seed: seedAudit },
-  { slice: "calls", table: "calls", seed: seedCalls },
-  { slice: "proposals", table: "proposals", seed: seedProposals },
-  { slice: "invoices", table: "invoices", seed: seedInvoices },
-  { slice: "delivery", table: "delivery_projects", seed: seedDelivery },
-  { slice: "payslips", table: "payslips", seed: seedPayslips },
-  { slice: "tasks", table: "app_tasks", seed: seedTasks },
-  { slice: "projects", table: "projects", seed: seedProjects },
-  { slice: "clients", table: "media_clients", seed: seedClients },
-  { slice: "campaigns", table: "campaigns", seed: seedCampaigns },
-  { slice: "content", table: "content_posts", seed: seedContent },
-  { slice: "tickets", table: "tickets", seed: seedTickets },
-  { slice: "notifications", table: "notifications", seed: seedNotifications },
-  { slice: "announcements", table: "announcements", seed: seedAnnouncements },
-  { slice: "auditReports", table: "audit_reports", seed: seedAuditReports },
-  { slice: "briefs", table: "briefs", seed: seedBriefs },
-  { slice: "forms", table: "forms", seed: seedForms },
-  { slice: "formResponses", table: "form_responses", seed: seedFormResponses },
-  { slice: "meetings", table: "meetings", seed: seedMeetings },
+// store slice → table, read with the generic mapper
+const TABLES: { slice: string; table: string }[] = [
+  { slice: "leads", table: "leads" },
+  { slice: "insights", table: "call_insights" },
+  { slice: "activities", table: "activities" },
+  { slice: "audit", table: "app_audit" },
+  { slice: "calls", table: "calls" },
+  { slice: "proposals", table: "proposals" },
+  { slice: "invoices", table: "invoices" },
+  { slice: "delivery", table: "delivery_projects" },
+  { slice: "payslips", table: "payslips" },
+  { slice: "tasks", table: "app_tasks" },
+  { slice: "projects", table: "projects" },
+  { slice: "clients", table: "media_clients" },
+  { slice: "campaigns", table: "campaigns" },
+  { slice: "content", table: "content_posts" },
+  { slice: "tickets", table: "tickets" },
+  { slice: "notifications", table: "notifications" },
+  { slice: "announcements", table: "announcements" },
+  { slice: "auditReports", table: "audit_reports" },
+  { slice: "briefs", table: "briefs" },
+  { slice: "forms", table: "forms" },
+  { slice: "formResponses", table: "form_responses" },
+  { slice: "meetings", table: "meetings" },
 ];
 
 const USER_COLS =
@@ -93,10 +47,17 @@ const USER_COLS =
   "ctc_annual,salary,bank_last4,leave_balance,login_id,must_change_password," +
   "approval_status,designation,employee_id,onboarding_date,created_at"; // deliberately excludes password_hash
 
+// every attendance column except the heavy punch_in_photo
+const ATTENDANCE_COLS =
+  "id,user_id,work_date,status,punch_in_time,punch_out_time,punch_in_latitude,punch_in_longitude," +
+  "incomplete_reason,admin_notes,hours_worked,total_break_time_minutes,current_break_start_time,on_break";
+
 export interface HydratedData {
   employees: User[];
   [slice: string]: unknown;
 }
+
+type Row = Record<string, unknown>;
 
 /**
  * Loads everything from Supabase into store-shaped slices. Returns null if
@@ -107,68 +68,58 @@ export async function hydrateAll(): Promise<HydratedData | null> {
   if (!sb) return null;
 
   try {
+    const [usersRes, deptRes, attRes, lvRes, coRes, arRes, ovRes, tdRes, ddRes, ...tableRes] = await Promise.all([
+      sb.from("users").select(USER_COLS),
+      sb.from("departments").select("*"),
+      sb.from("attendance").select(ATTENDANCE_COLS).order("work_date", { ascending: false }),
+      sb.from("leave_requests").select("*").order("leave_date", { ascending: false }),
+      sb.from("company_settings").select("data").eq("id", "default").maybeSingle(),
+      sb.from("approval_rules").select("data").eq("id", "default").maybeSingle(),
+      sb.from("doc_overrides").select("*"),
+      sb.from("template_designs").select("*"),
+      sb.from("doc_designs").select("*"),
+      ...TABLES.map(({ table }) => sb.from(table).select("*")),
+    ]);
+
     // ── users (source of truth for people) ──
-    const { data: userRows, error: uErr } = await sb.from("users").select(USER_COLS);
-    if (uErr) throw uErr;
-    const employees = (userRows ?? []).map((r) => elevate(userToApp(r as unknown as Record<string, unknown>)));
+    if (usersRes.error) throw usersRes.error;
+    const employees = ((usersRes.data ?? []) as unknown as Row[]).map((r) => elevate(userToApp(r)));
     employees.sort((a, b) => Number(a.id) - Number(b.id));
     setUsers(employees); // keep the sync userById() registry fresh
 
     const out: HydratedData = { employees };
 
     // ── departments ──
-    const { data: deptRows } = await sb.from("departments").select("*");
-    out.departments = (deptRows ?? []).map((r) => genericToApp(r as unknown as Record<string, unknown>));
+    out.departments = ((deptRes.data ?? []) as Row[]).map((r) => genericToApp(r));
     if (!(out.departments as unknown[]).length) out.departments = seedDepartments;
 
-    // ── real HR tables (never seeded) ──
-    const { data: attRows } = await sb.from("attendance").select("*").order("work_date", { ascending: false });
-    out.attendance = (attRows ?? []).map((r) => attendanceToApp(r as unknown as Record<string, unknown>));
+    // ── real HR tables ──
+    // A failed attendance read must not look like "nobody has clocked in" —
+    // that's what makes people clock in again over an existing punch.
+    if (attRes.error) throw attRes.error;
+    out.attendance = ((attRes.data ?? []) as unknown as Row[]).map((r) => attendanceToApp(r));
+    out.leaves = ((lvRes.data ?? []) as Row[]).map((r) => leaveToApp(r));
 
-    const { data: lvRows } = await sb.from("leave_requests").select("*").order("leave_date", { ascending: false });
-    out.leaves = (lvRows ?? []).map((r) => leaveToApp(r as unknown as Record<string, unknown>));
-
-    // ── generic seedable slices ──
-    for (const { slice, table, seed } of SEEDABLE) {
-      const { data: rows, error } = await sb.from(table).select("*");
-      if (error) { out[slice] = seed; continue; }
-      if (rows && rows.length) {
-        out[slice] = (rows as unknown as Record<string, unknown>[]).map((r) => genericToApp(r, table));
-      } else if (seed.length) {
-        // one-time seed: insert remapped demo rows, then use them
-        const remapped = seed.map((x) => remap(x));
-        const insertRows = remapped.map((x) => genericToRow(x as Record<string, unknown>, table));
-        const { error: insErr } = await sb.from(table).insert(insertRows);
-        out[slice] = insErr ? remapped : remapped; // in-memory either way; DB has them if no error
-        if (insErr) console.warn(`[hydrate] seed insert failed for ${table}:`, insErr.message);
-      } else {
-        out[slice] = [];
-      }
-    }
-
-    // slices with no seed data
+    // ── generic slices ──
+    TABLES.forEach(({ slice, table }, i) => {
+      const { data, error } = tableRes[i];
+      if (error) { console.warn(`[hydrate] ${table}:`, error.message); out[slice] = []; return; }
+      out[slice] = ((data ?? []) as Row[]).map((r) => genericToApp(r, table));
+    });
     out.milestones = out.milestones ?? [];
     out.payments = out.payments ?? [];
     out.credentialEmails = [];
 
     // ── company settings + approval rules (single-row blobs) ──
-    const { data: coRow } = await sb.from("company_settings").select("data").eq("id", "default").maybeSingle();
-    if (coRow?.data) out.company = coRow.data;
-    else { await sb.from("company_settings").insert({ id: "default", data: seedCompany }); out.company = seedCompany; }
-
-    const { data: arRow } = await sb.from("approval_rules").select("data").eq("id", "default").maybeSingle();
-    if (arRow?.data) out.approvalRules = arRow.data;
-    else { await sb.from("approval_rules").insert({ id: "default", data: seedApprovalRules }); out.approvalRules = seedApprovalRules; }
+    if (coRes.data?.data) out.company = coRes.data.data;
+    else { void sb.from("company_settings").insert({ id: "default", data: seedCompany }); out.company = seedCompany; }
+    if (arRes.data?.data) out.approvalRules = arRes.data.data;
+    else { void sb.from("approval_rules").insert({ id: "default", data: seedApprovalRules }); out.approvalRules = seedApprovalRules; }
 
     // ── design/doc key-value slices ──
-    const { data: ovRows } = await sb.from("doc_overrides").select("*");
-    out.docOverrides = Object.fromEntries((ovRows ?? []).map((r) => [(r as { key: string }).key, (r as { html: string }).html]));
-
-    const { data: tdRows } = await sb.from("template_designs").select("*");
-    out.templateDesigns = Object.fromEntries((tdRows ?? []).map((r) => [(r as { doc_type: string }).doc_type, (r as { design: unknown }).design]));
-
-    const { data: ddRows } = await sb.from("doc_designs").select("*");
-    out.docDesigns = Object.fromEntries((ddRows ?? []).map((r) => [(r as { key: string }).key, JSON.stringify((r as { design: unknown }).design)]));
+    out.docOverrides = Object.fromEntries(((ovRes.data ?? []) as Row[]).map((r) => [r.key as string, r.html as string]));
+    out.templateDesigns = Object.fromEntries(((tdRes.data ?? []) as Row[]).map((r) => [r.doc_type as string, r.design]));
+    out.docDesigns = Object.fromEntries(((ddRes.data ?? []) as Row[]).map((r) => [r.key as string, JSON.stringify(r.design)]));
 
     return out;
   } catch (e) {
@@ -184,4 +135,13 @@ export async function hydrateAll(): Promise<HydratedData | null> {
     );
     return null;
   }
+}
+
+/** attendance id → check-in selfie, loaded after the rest of the app. */
+export async function hydrateAttendancePhotos(): Promise<Map<string, string> | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb.from("attendance").select("id,punch_in_photo").not("punch_in_photo", "is", null);
+  if (error) { console.warn("[hydrate] attendance photos:", error.message); return null; }
+  return new Map(((data ?? []) as { id: number; punch_in_photo: string }[]).map((r) => [String(r.id), r.punch_in_photo]));
 }

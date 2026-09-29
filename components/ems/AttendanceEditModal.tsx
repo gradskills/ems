@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
+import { localDateISO } from "@/lib/utils";
 import { Modal, Field, Input } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
-import { attendanceLabel } from "@/lib/ems";
+import { attendanceLabel, needsAttendanceReview } from "@/lib/ems";
 import type { AttendanceRecord, AttendanceStatus, User } from "@/lib/types";
 import { AlertTriangle, LogIn } from "lucide-react";
 
@@ -32,10 +33,6 @@ function timeToIso(date: string, time: string): string | null {
   d.setHours(h, m, 0, 0);
   return d.toISOString();
 }
-// is this a past day the employee couldn't finish? (needs an admin's review)
-function needsReview(a: AttendanceRecord, today: string): boolean {
-  return a.date < today && ((!!a.checkIn && !a.checkOut) || a.status === "needs_review" || a.status === "pending_punchout");
-}
 
 export function AttendanceEditModal({
   open, onClose, employee, date,
@@ -50,18 +47,20 @@ export function AttendanceEditModal({
 }) {
   const setAttendance = useApp((s) => s.setAttendance);
   const attendance = useApp((s) => s.attendance);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
 
   const [activeDate, setActiveDate] = useState(date);
   const [status, setStatus] = useState<AttendanceStatus>("present");
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
 
-  // every past day this person clocked in without clocking out (latest first)
+  // days this person flagged for review — forgot to clock out AND reached out to
+  // admin. Untouched forgotten punch-outs count as half-days automatically and
+  // don't appear here (latest first).
   const reviewDays = useMemo(() => {
     if (!employee) return [] as AttendanceRecord[];
     return attendance
-      .filter((a) => a.userId === employee.id && needsReview(a, today))
+      .filter((a) => a.userId === employee.id && needsAttendanceReview(a, today))
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [attendance, employee, today]);
 
@@ -119,39 +118,8 @@ export function AttendanceEditModal({
       }
     >
       <div className="space-y-4">
-        {/* Days the employee couldn't finish — pick one to fix its clock-out */}
-        {reviewDays.length > 0 && (
-          <div className="rounded-xl border border-[var(--warning)] bg-[var(--warning-soft)] p-3">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
-              <AlertTriangle size={15} />
-              {reviewDays.length} day{reviewDays.length > 1 ? "s" : ""} need review
-            </div>
-            <p className="mb-2.5 text-[11px] text-[var(--muted)]">Clocked in but never clocked out. Pick a day, then set the clock-out time below.</p>
-            <div className="space-y-1.5">
-              {reviewDays.map((r) => {
-                const selected = r.date === activeDate;
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => setActiveDate(r.date)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${selected ? "border-[var(--warning)] bg-[var(--surface)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--warning)]"}`}
-                  >
-                    <span className="text-sm font-medium">{fmtDay(r.date)}</span>
-                    <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
-                      {r.checkIn ? (
-                        <><LogIn size={12} /> In {fmtT(r.checkIn)}</>
-                      ) : (
-                        <span className="text-[var(--muted-2)]">No clock-in</span>
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Date being edited — admin can also pick any other day to correct */}
+        {/* ── Change attendance (primary action, shown first) ── */}
+        {/* Date being edited — admin can pick any past day to correct */}
         <Field label="Date" hint="Pick any day to correct its attendance">
           <Input type="date" value={activeDate} max={today} onChange={(e) => e.target.value && setActiveDate(e.target.value)} />
         </Field>
@@ -176,6 +144,38 @@ export function AttendanceEditModal({
         <p className="text-[11px] text-[var(--muted-2)]">
           Setting a status like Absent or On leave clears the clock-in/out times for the day.
         </p>
+
+        {/* ── Caution dates (below): only days the employee reached out about ── */}
+        {reviewDays.length > 0 && (
+          <div className="rounded-xl border border-[var(--warning)] bg-[var(--warning-soft)] p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
+              <AlertTriangle size={15} />
+              {reviewDays.length} day{reviewDays.length > 1 ? "s" : ""} need review
+            </div>
+            <p className="mb-2.5 text-[11px] text-[var(--muted)]">The employee forgot to clock out and asked you to fix these. Until fixed they count as half-days. Pick a day, then set its clock-out time above.</p>
+            <div className="space-y-1.5">
+              {reviewDays.map((r) => {
+                const selected = r.date === activeDate;
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setActiveDate(r.date)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${selected ? "border-[var(--warning)] bg-[var(--surface)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--warning)]"}`}
+                  >
+                    <span className="text-sm font-medium">{fmtDay(r.date)}</span>
+                    <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                      {r.checkIn ? (
+                        <><LogIn size={12} /> In {fmtT(r.checkIn)}</>
+                      ) : (
+                        <span className="text-[var(--muted-2)]">No clock-in</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );

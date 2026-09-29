@@ -12,7 +12,7 @@ import { CameraCapture } from "@/components/ems/CameraCapture";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
 import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel } from "@/lib/ems";
-import { formatDate, inr } from "@/lib/utils";
+import { formatDate, inr, localDateISO } from "@/lib/utils";
 import { CalendarPlus, CheckSquare, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight, AlertTriangle, LifeBuoy } from "lucide-react";
 
 export default function MyDashboardPage() {
@@ -32,7 +32,7 @@ export default function MyDashboardPage() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [clockErr, setClockErr] = useState("");
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
 
   const handleClockIn = async () => {
     setCameraOpen(true);
@@ -88,7 +88,7 @@ export default function MyDashboardPage() {
               </div>
             </div>
           </div>
-          {fixRequested === unfinished.date ? (
+          {fixRequested === unfinished.date || unfinished.fixRequested ? (
             <span className="shrink-0 rounded-lg bg-[var(--success-soft)] px-3 py-2 text-xs font-medium text-[var(--success)]">Request sent to admin ✓</span>
           ) : (
             <Button
@@ -217,7 +217,7 @@ function AdminMyDashboard({ greet, name }: { greet: string; name: string }) {
   const tasks = useApp((s) => s.tasks);
   const leads = useApp((s) => s.leads);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 
   const staff = employees.filter((e) => e.accessLevel !== "admin" && e.status !== "inactive");

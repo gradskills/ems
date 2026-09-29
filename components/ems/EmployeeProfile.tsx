@@ -8,17 +8,19 @@ import { userById } from "@/lib/seed/users";
 import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, ProgressBar, Stat, Button } from "@/components/ui/primitives";
 import { Tabs, InfoRow, TableShell } from "@/components/ems/kit";
-import { inr, formatDate } from "@/lib/utils";
+import { inr, formatDate, localDateISO } from "@/lib/utils";
 import { downloadCSV, downloadPayslip } from "@/lib/exports";
 import {
   attendanceSummary, attendanceLabel, attendanceColor, leaveTypeLabel, leaveStatusColor,
   taskStatusColor, taskStatusLabel, priorityColor, projectStatusColor, projectStatusLabel, payslipTotals, monthLabel, roleLabel,
+  effectiveAttendanceStatus, needsAttendanceReview,
 } from "@/lib/ems";
-import { ChevronLeft, Mail, Phone, MapPin, ChevronRight, Wallet, Download, Pencil, IdCard } from "lucide-react";
+import { ChevronLeft, Mail, Phone, MapPin, ChevronRight, Wallet, Download, Pencil, IdCard, CalendarClock, AlertTriangle } from "lucide-react";
 import { EditEmployeeModal } from "@/components/ems/EditEmployeeModal";
 import { MyProfileEditModal } from "@/components/ems/MyProfileEditModal";
 import { IdCardModal } from "@/components/ems/EmployeeIdCard";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
+import { AttendanceEditModal } from "@/components/ems/AttendanceEditModal";
 
 type Tab = "overview" | "projects" | "tasks" | "attendance" | "leaves" | "payroll";
 
@@ -58,6 +60,7 @@ export function EmployeeProfile({
   const [myEditOpen, setMyEditOpen] = useState(false);
   const [idCardOpen, setIdCardOpen] = useState(false);
   const [attMonth, setAttMonth] = useState<string>("all"); // "all" or "YYYY-MM"
+  const [attEditDate, setAttEditDate] = useState<string | null>(null); // admin attendance editor
 
   // when the URL's ?tab= changes (client nav to a new deep-link), adopt it — the
   // React-recommended "adjust state during render" pattern, no effect needed.
@@ -81,6 +84,7 @@ export function EmployeeProfile({
   const canSeePay = viewer.accessLevel !== "employee" || viewer.id === emp.id;
   const canEdit = viewer.accessLevel !== "employee";
   const isSelf = viewer.id === emp.id;
+  const canEditAttendance = viewer.accessLevel === "admin" && !isSelf; // admins fix others' attendance
   const dept = departmentById(emp.departmentId);
   const mgr = emp.managerId ? userById(emp.managerId) : undefined;
 
@@ -94,7 +98,7 @@ export function EmployeeProfile({
   const monthSummary = attMonth === "all" ? att : attendanceSummary(shownAtt);
 
   // ── worked-time metrics (total across records + today's live working time) ──
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const fmtDur = (mins: number) => `${Math.floor(mins / 60)}h ${mins % 60}m`;
   const todayRec = empAtt.find((a) => a.date === today);
   const netWorked = (rec?: typeof todayRec) => {
@@ -319,24 +323,52 @@ export function EmployeeProfile({
               </select>
               <span className="text-xs text-[var(--muted-2)]">{shownAtt.length} {shownAtt.length === 1 ? "day" : "days"}</span>
             </label>
-            {shownAtt.length > 0 && <Button variant="outline" size="sm" onClick={exportAttendance}><Download size={14} /> Export attendance</Button>}
+            <div className="flex items-center gap-2">
+              {canEditAttendance && <Button variant="primary" size="sm" onClick={() => setAttEditDate(today)}><CalendarClock size={14} /> Edit attendance</Button>}
+              {shownAtt.length > 0 && <Button variant="outline" size="sm" onClick={exportAttendance}><Download size={14} /> Export attendance</Button>}
+            </div>
           </div>
+          {/* Admin: days this employee forgot to clock out and asked to have fixed */}
+          {canEditAttendance && (() => {
+            const rv = empAtt.filter((a) => needsAttendanceReview(a, today)).sort((a, b) => (a.date < b.date ? 1 : -1));
+            if (!rv.length) return null;
+            return (
+              <button
+                onClick={() => setAttEditDate(rv[0].date)}
+                className="flex w-full items-center gap-3 rounded-xl border border-[var(--warning)] bg-[var(--warning-soft)] px-4 py-3 text-left transition-colors hover:brightness-[0.98]"
+              >
+                <AlertTriangle size={18} className="shrink-0 text-[var(--warning)]" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-[var(--warning)]">{rv.length} day{rv.length > 1 ? "s" : ""} need review</div>
+                  <div className="text-xs text-[var(--muted)]">{emp.name.split(" ")[0]} forgot to clock out and asked for a fix. Counting as half-days until corrected — tap to review.</div>
+                </div>
+                <ChevronRight size={16} className="shrink-0 text-[var(--warning)]" />
+              </button>
+            );
+          })()}
           <Card className="overflow-hidden">
             {shownAtt.length === 0 ? (
               <div className="py-12 text-center text-sm text-[var(--muted)]">No attendance recorded for this month.</div>
             ) : (
-            <TableShell head={<><th className="px-4 py-3">Date</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Check in</th><th className="px-4 py-3">Check out</th><th className="px-4 py-3">Worked</th><th className="px-4 py-3">Breaks</th></>}>
+            <TableShell head={<><th className="px-4 py-3">Date</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Check in</th><th className="px-4 py-3">Check out</th><th className="px-4 py-3">Worked</th><th className="px-4 py-3">Breaks</th>{canEditAttendance && <th className="px-4 py-3"></th>}</>}>
               {shownAtt.map((a) => {
                 const done = (a.breaks ?? []).filter((b) => b.endedAt);
                 const brkMin = done.reduce((s, b) => s + Math.round((Date.parse(b.endedAt!) - Date.parse(b.startedAt)) / 60000), 0);
+                const eff = effectiveAttendanceStatus(a, today);
+                const flagged = needsAttendanceReview(a, today);
                 return (
                   <tr key={a.id} className="border-b border-[var(--border)] last:border-0">
                     <td className="px-4 py-3">{formatDate(a.date)}{a.date === today && <span className="ml-1.5 text-[10px] font-semibold uppercase text-[var(--primary)]">Today</span>}</td>
-                    <td className="px-4 py-3"><Badge color={attendanceColor[a.status]}>{attendanceLabel[a.status]}</Badge></td>
+                    <td className="px-4 py-3"><span className="inline-flex items-center gap-1.5"><Badge color={attendanceColor[eff]}>{attendanceLabel[eff]}</Badge>{flagged && <AlertTriangle size={13} className="text-[var(--warning)]" aria-label="Needs review" />}</span></td>
                     <td className="px-4 py-3 text-xs text-[var(--muted)]">{a.checkIn ? new Date(a.checkIn).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
                     <td className="px-4 py-3 text-xs text-[var(--muted)]">{a.checkOut ? new Date(a.checkOut).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
                     <td className="px-4 py-3 text-xs">{a.date === today && isWorkingNow ? fmtDur(workingTodayMin) : a.workedMinutes ? `${Math.floor(a.workedMinutes / 60)}h ${a.workedMinutes % 60}m` : "—"}</td>
                     <td className="px-4 py-3 text-xs text-[var(--muted)]">{done.length ? `${done.length} · ${brkMin}m` : "—"}</td>
+                    {canEditAttendance && (
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => setAttEditDate(a.date)} title="Edit attendance" className="rounded-md p-1.5 text-[var(--muted-2)] hover:bg-[var(--surface-2)] hover:text-[var(--primary)]"><Pencil size={15} /></button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -409,6 +441,14 @@ export function EmployeeProfile({
       </div>
       {canEdit && !isSelf && <EditEmployeeModal open={editOpen} onClose={() => setEditOpen(false)} employee={emp} />}
       {isSelf && <MyProfileEditModal open={myEditOpen} onClose={() => setMyEditOpen(false)} employee={emp} />}
+      {canEditAttendance && (
+        <AttendanceEditModal
+          open={!!attEditDate}
+          onClose={() => setAttEditDate(null)}
+          employee={emp}
+          date={attEditDate ?? today}
+        />
+      )}
       <IdCardModal open={idCardOpen} onClose={() => setIdCardOpen(false)} employee={emp} />
     </div>
   );

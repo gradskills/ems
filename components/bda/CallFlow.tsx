@@ -4,8 +4,7 @@ import { useState } from "react";
 import type { Lead, Disposition } from "@/lib/types";
 import { useApp, labelDisposition } from "@/lib/store";
 import { latestInsightForLead } from "@/lib/seed/calls";
-import { seededInt } from "@/lib/clock";
-import { Modal, Textarea } from "@/components/ui/modal";
+import { Modal, Textarea, Input } from "@/components/ui/modal";
 import { Button } from "@/components/ui/primitives";
 import { AiReviewPanel } from "./AiReviewPanel";
 import { Phone, PhoneCall, Loader2, Sparkles } from "lucide-react";
@@ -22,12 +21,17 @@ const dispositions: { key: Disposition; color: string }[] = [
 
 type Step = "dialing" | "disposition" | "transcribing" | "review";
 
+// wall-clock helpers, only ever called from event handlers
+const nowMs = () => Date.now();
+const secondsSince = (t: number) => Math.round((nowMs() - t) / 1000);
+
 export function CallFlow({ lead, open, onClose }: { lead: Lead; open: boolean; onClose: () => void }) {
   const logCall = useApp((s) => s.logCall);
   const [step, setStep] = useState<Step>("dialing");
   const [dispo, setDispo] = useState<Disposition | null>(null);
   const [note, setNote] = useState("");
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(0); // seconds
+  const [dialedAt, setDialedAt] = useState<number | null>(null); // when "Open dialer" was tapped
 
   const insight = latestInsightForLead(lead.id);
 
@@ -36,6 +40,7 @@ export function CallFlow({ lead, open, onClose }: { lead: Lead; open: boolean; o
     setDispo(null);
     setNote("");
     setDuration(0);
+    setDialedAt(null);
   }
   function close() {
     reset();
@@ -44,7 +49,9 @@ export function CallFlow({ lead, open, onClose }: { lead: Lead; open: boolean; o
 
   function pickDispo(d: Disposition) {
     setDispo(d);
-    if (d === "connected") setDuration(seededInt(lead.id + d, 150, 420));
+    // Real elapsed time since the dialer was opened (the BDA can correct it);
+    // 0 if they dialled from their own phone without tapping "Open dialer".
+    if (d === "connected") setDuration(dialedAt ? secondsSince(dialedAt) : 0);
   }
 
   function save() {
@@ -81,7 +88,7 @@ export function CallFlow({ lead, open, onClose }: { lead: Lead; open: boolean; o
             On a phone this opens your dialer. Only calls started here are tracked — your personal calls stay private.
           </p>
           <div className="mt-5 flex w-full gap-2">
-            <a href={`tel:${lead.phone.replace(/\s/g, "")}`} className="flex-1">
+            <a href={`tel:${lead.phone.replace(/\s/g, "")}`} className="flex-1" onClick={() => setDialedAt(nowMs())}>
               <Button variant="success" className="w-full">
                 <PhoneCall size={16} /> Open dialer
               </Button>
@@ -114,6 +121,18 @@ export function CallFlow({ lead, open, onClose }: { lead: Lead; open: boolean; o
               ))}
             </div>
           </div>
+          {dispo === "connected" && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Call length (minutes)</span>
+              <Input
+                type="number"
+                min={0}
+                step={0.5}
+                value={Math.round((duration / 60) * 10) / 10}
+                onChange={(e) => setDuration(Math.max(0, Math.round(Number(e.target.value || 0) * 60)))}
+              />
+            </label>
+          )}
           {dispo === "connected" && insight && (
             <div className="flex items-center gap-2 rounded-lg bg-[var(--primary-soft)] p-2.5 text-xs text-[var(--primary)]">
               <Sparkles size={14} /> Recording detected — AI will transcribe & fill the record after you save.

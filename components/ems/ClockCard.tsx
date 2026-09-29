@@ -6,6 +6,7 @@ import { Card, Badge } from "@/components/ui/primitives";
 import { breakTypeLabel, breakDefaults, activeBreak } from "@/lib/ems";
 import { shiftById, shiftWindow, DEFAULT_SHIFTS } from "@/lib/shifts";
 import type { BreakType, User } from "@/lib/types";
+import { localDateISO } from "@/lib/utils";
 import {
   LogIn, LogOut, MapPin, Coffee, Cookie, UtensilsCrossed, Armchair,
   ChevronRight, AlarmClock, type LucideIcon,
@@ -117,6 +118,7 @@ export function ClockCard({
   const clockOut = useApp((s) => s.clockOut);
   const startBreak = useApp((s) => s.startBreak);
   const endBreak = useApp((s) => s.endBreak);
+  const dataReady = useApp((s) => s.dataReady);
 
   const [now, setNow] = useState<Date | null>(null);
   const [breakType, setBreakType] = useState<BreakType>("casual");
@@ -129,7 +131,7 @@ export function ClockCard({
     return () => { clearInterval(id); cancelAnimationFrame(kick); };
   }, []);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const rec = attendance.find((a) => a.userId === me.id && a.date === today);
   const clockedIn = !!rec?.checkIn && !rec?.checkOut;
   const clockedOut = !!rec?.checkOut;
@@ -180,8 +182,12 @@ export function ClockCard({
           <div className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-center text-xs font-medium text-[var(--danger)]">{clockErr}</div>
         )}
 
-        {/* ── Clock In (slide) — shown first, before anything else ── */}
-        {!rec?.checkIn ? (
+        {/* ── Clock In (slide) — shown first, before anything else ──
+            Nothing is offered until today's record has loaded; otherwise an
+            already-clocked-in person briefly sees "Slide to clock in". */}
+        {!dataReady ? (
+          <div className="h-12 w-full animate-pulse rounded-full bg-[var(--surface-2)]" aria-label="Loading attendance" />
+        ) : !rec?.checkIn ? (
           <div className="space-y-2">
             <SlideToConfirm
               label={clockingIn ? "Clocking in…" : "Slide to clock in"}

@@ -387,18 +387,24 @@ export interface AuditEntry {
 export interface ProspectAuditResult {
   id: string;
   company: string;
-  url?: string;
+  url?: string; // the website that was actually scanned (after redirects)
   checks: ProspectCheck[];
   score: number; // lead-heat: higher = more they need us
   opener: string; // suggested call opener
   createdAt: string;
+  // what the scan could NOT cover (e.g. Google listing without an API key)
+  notes?: string[];
+  place?: { name: string; address?: string; mapsUrl?: string; phone?: string };
 }
 
 export interface ProspectCheck {
   key: string;
   label: string;
-  status: "pass" | "warn" | "fail";
+  // "unknown" = couldn't be checked automatically (no website / no API key);
+  // it never counts toward the score
+  status: "pass" | "warn" | "fail" | "unknown";
   detail: string;
+  evidence?: string[]; // the specific findings behind the status
 }
 
 // ── Delivery / client portal ──
@@ -496,6 +502,11 @@ export interface AttendanceRecord {
   // ── aggregate break tracking from the real backend ──
   totalBreakMinutes?: number; // sum of break minutes taken today
   onBreak?: boolean; // currently on a break
+  // Set when the employee forgot to clock out AND asked an admin to fix the day.
+  // Until then a forgotten punch-out is treated as a half-day by default; once
+  // requested, admins see the day in their "needs review" list.
+  fixRequested?: boolean;
+  fixRequestedAt?: string; // ISO — when the employee reached out
 }
 
 export type LeaveType = "casual" | "sick" | "earned" | "unpaid" | "comp_off";

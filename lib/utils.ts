@@ -86,6 +86,15 @@ export function todayISO() {
   return new Date().toISOString();
 }
 
+/**
+ * Local-calendar YYYY-MM-DD. Attendance days follow the wall clock (IST), not
+ * UTC — `toISOString().slice(0, 10)` rolls over at 05:30 IST instead of midnight.
+ */
+export function localDateISO(d = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 /** true when an ISO timestamp is in the past */
 export function isPast(iso?: string) {
   if (!iso) return false;

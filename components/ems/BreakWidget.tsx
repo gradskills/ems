@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "@/lib/store";
+import { localDateISO } from "@/lib/utils";
 import { Card, Button, Badge } from "@/components/ui/primitives";
 import { breakTypeLabel, breakDefaults, activeBreak } from "@/lib/ems";
 import { Coffee, Cookie, UtensilsCrossed, Armchair, Play, Square, AlarmClock } from "lucide-react";
@@ -22,7 +23,7 @@ export function BreakWidget({ clockedIn }: { clockedIn: boolean }) {
   const endBreak = useApp((s) => s.endBreak);
   const breakReminder = useApp((s) => s.breakReminder);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const rec = attendance.find((a) => a.userId === actingUserId && a.date === today);
   const brk = activeBreak(rec);
   const takenToday = (rec?.breaks ?? []).filter((b) => b.endedAt).length;

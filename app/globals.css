@@ -174,8 +174,11 @@ body {
     transform: translateY(0);
   }
 }
+/* `backwards` (not `both`) so the page keeps NO transform after the entrance
+   finishes. A retained transform makes <main> the containing block for
+   `position: fixed`, which would drop centered modals far down tall pages. */
 .page-enter {
-  animation: pageEnter 0.28s cubic-bezier(0.2, 0, 0, 1) both;
+  animation: pageEnter 0.28s cubic-bezier(0.2, 0, 0, 1) backwards;
 }
 
 /* Staggered list/grid entrance — children rise in sequence. Opt-in via .stagger

@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
-import { users, userById } from "@/lib/seed/users";
+import { userById } from "@/lib/seed/users";
+import { isBda, bdaStats, sinceDaysAgo } from "@/lib/bda";
 import { Card, Avatar, Badge, Button, SectionTitle, Stat } from "@/components/ui/primitives";
 import { inr, formatDate } from "@/lib/utils";
 import { printDocument, wrapDocument, mailto } from "@/lib/documents";
@@ -57,9 +58,20 @@ function htmlTable(headers: string[], rows: (string | number)[][]) {
     .join("")}</tbody></table>`;
 }
 
+// Everyone in the BDA department (see lib/bda) — not every employee.
+function useBdas() {
+  const employees = useApp((s) => s.employees);
+  return useMemo(() => employees.filter(isBda), [employees]);
+}
+
 function DailyDigest() {
   const leads = useApp((s) => s.leads);
-  const bdas = users.filter((u) => u.role === "bda");
+  const calls = useApp((s) => s.calls);
+  const activities = useApp((s) => s.activities);
+  const proposals = useApp((s) => s.proposals);
+  const bdas = useBdas();
+  const today = sinceDaysAgo(0);
+  const rows = bdas.map((b) => ({ b, st: bdaStats(b.id, { leads, calls, activities, proposals }, today) }));
 
   return (
     <Card className="p-5">
@@ -74,34 +86,34 @@ function DailyDigest() {
           buildHtml={() =>
             `<h1>Daily Activity Digest</h1><div class="muted">${formatDate(new Date().toISOString())}</div>` +
             htmlTable(
-              ["BDA", "Calls", "Connects", "Follow-ups", "Proposals", "Moved"],
-              bdas.map((b, i) => [b.name, 18 + i * 4, 11 + i * 2, `${5 - i}/${7 - i}`, 2 - (i % 2), leads.filter((l) => l.ownerId === b.id && ["won", "negotiation"].includes(l.stage)).length])
+              ["BDA", "Calls", "Connects", "Follow-ups", "Proposals", "Stage moves"],
+              rows.map(({ b, st }) => [b.name, st.calls, st.connects, st.followUps, st.proposals, st.stageMoves])
             )
           }
-          mailBody={{ subject: `Daily Activity Digest — ${formatDate(new Date().toISOString())}`, body: `Team daily digest attached.\n\n${bdas.map((b, i) => `${b.name}: ${18 + i * 4} calls, ${11 + i * 2} connects`).join("\n")}` }}
+          mailBody={{ subject: `Daily Activity Digest — ${formatDate(new Date().toISOString())}`, body: `Team daily digest attached.\n\n${rows.map(({ b, st }) => `${b.name}: ${st.calls} calls, ${st.connects} connects`).join("\n")}` }}
         />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px] text-sm">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--muted)] [&>th]:whitespace-nowrap [&>th]:pr-4">
-              <th className="py-2">BDA</th><th className="py-2">Calls</th><th className="py-2">Connects</th><th className="py-2">Follow-ups</th><th className="py-2">Proposals</th><th className="py-2">Moved</th>
+              <th className="py-2">BDA</th><th className="py-2">Calls</th><th className="py-2">Connects</th><th className="py-2">Follow-ups</th><th className="py-2">Proposals</th><th className="py-2">Stage moves</th>
             </tr>
           </thead>
           <tbody>
-            {bdas.map((b, i) => {
-              const bl = leads.filter((l) => l.ownerId === b.id);
-              return (
-                <tr key={b.id} className="border-b border-[var(--border)] last:border-0 [&>td]:whitespace-nowrap [&>td]:pr-4">
-                  <td className="py-2.5"><div className="flex items-center gap-2"><Avatar name={b.name} size={26} /> {b.name}</div></td>
-                  <td className="py-2.5">{18 + i * 4}</td>
-                  <td className="py-2.5">{11 + i * 2}</td>
-                  <td className="py-2.5">{5 - i}/{7 - i}</td>
-                  <td className="py-2.5">{2 - (i % 2)}</td>
-                  <td className="py-2.5">{bl.filter((l) => ["won", "negotiation"].includes(l.stage)).length}</td>
-                </tr>
-              );
-            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="py-6 text-center text-sm text-[var(--muted)]">No one is in the BDA department yet.</td></tr>
+            )}
+            {rows.map(({ b, st }) => (
+              <tr key={b.id} className="border-b border-[var(--border)] last:border-0 [&>td]:whitespace-nowrap [&>td]:pr-4">
+                <td className="py-2.5"><div className="flex items-center gap-2"><Avatar name={b.name} size={26} /> {b.name}</div></td>
+                <td className="py-2.5">{st.calls}</td>
+                <td className="py-2.5">{st.connects}</td>
+                <td className="py-2.5">{st.followUps}</td>
+                <td className="py-2.5">{st.proposals}</td>
+                <td className="py-2.5">{st.stageMoves}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -111,9 +123,24 @@ function DailyDigest() {
 
 function WeeklyPack() {
   const leads = useApp((s) => s.leads);
-  const wonValue = leads.filter((l) => l.stage === "won").reduce((s, l) => s + l.estimatedValue, 0);
-  const pipeline = leads.filter((l) => !["won", "lost"].includes(l.stage)).reduce((s, l) => s + l.estimatedValue, 0);
-  const lost = leads.filter((l) => l.stage === "lost");
+  const activities = useApp((s) => s.activities);
+  const bdas = useBdas();
+  const weekStart = sinceDaysAgo(6); // last 7 days including today
+  // leads whose stage moved into Won / Lost during the week (from the activity log)
+  const movedTo = (stageLabel: string) => new Set(
+    activities.filter((a) => a.type === "stage_change" && a.at >= weekStart && a.title.trim().endsWith(`→ ${stageLabel}`)).map((a) => a.leadId)
+  );
+  const wonIds = movedTo("Won");
+  const lostIds = movedTo("Lost");
+  const wonWeek = leads.filter((l) => l.stage === "won" && wonIds.has(l.id));
+  const wonValue = wonWeek.reduce((s, l) => s + l.estimatedValue, 0);
+  const pipeline = leads.filter((l) => l.createdAt >= weekStart && !["won", "lost"].includes(l.stage)).reduce((s, l) => s + l.estimatedValue, 0);
+  const allWon = leads.filter((l) => l.stage === "won");
+  const avgDeal = allWon.length ? Math.round(allWon.reduce((s, l) => s + l.estimatedValue, 0) / allWon.length) : 0;
+  const lost = leads.filter((l) => l.stage === "lost" && lostIds.has(l.id));
+  const topBdas = bdas
+    .map((b) => ({ b, won: leads.filter((l) => l.ownerId === b.id && l.stage === "won").reduce((s, l) => s + l.estimatedValue, 0) }))
+    .sort((x, y) => y.won - x.won);
 
   return (
     <div className="space-y-4">
@@ -124,28 +151,29 @@ function WeeklyPack() {
           title="Weekly Manager Pack"
           buildHtml={() =>
             `<h1>Weekly Manager Pack</h1>` +
-            htmlTable(["Metric", "Value"], [["Won this week", money(wonValue)], ["Pipeline added", money(pipeline * 0.3)], ["Avg. deal size", money(85000)], ["Deals lost", lost.length]]) +
+            htmlTable(["Metric", "Value"], [["Won this week", money(wonValue)], ["Pipeline added", money(pipeline)], ["Avg. deal size", avgDeal ? money(avgDeal) : "—"], ["Deals lost", lost.length]]) +
             `<h1 style="font-size:14px;margin-top:16px">Top performers</h1>` +
-            htmlTable(["BDA", "Won value"], users.filter((u) => u.role === "bda").map((b) => [b.name, money(leads.filter((l) => l.ownerId === b.id && l.stage === "won").reduce((s, l) => s + l.estimatedValue, 0))]))
+            htmlTable(["BDA", "Won value"], topBdas.map(({ b, won }) => [b.name, money(won)]))
           }
           mailBody={{ subject: "Weekly Manager Pack", body: `Won this week: ${money(wonValue)}\nDeals lost: ${lost.length}\nSee attached pack.` }}
         />
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card className="p-4"><Stat label="Won this week" value={inr(wonValue, { compact: true })} accent="var(--success)" /></Card>
-        <Card className="p-4"><Stat label="Pipeline added" value={inr(pipeline * 0.3, { compact: true })} /></Card>
-        <Card className="p-4"><Stat label="Avg. deal size" value={inr(85000, { compact: true })} /></Card>
+        <Card className="p-4"><Stat label="Pipeline added" value={inr(pipeline, { compact: true })} sub="new leads this week" /></Card>
+        <Card className="p-4"><Stat label="Avg. deal size" value={avgDeal ? inr(avgDeal, { compact: true }) : "—"} sub={`${allWon.length} won deal${allWon.length === 1 ? "" : "s"}`} /></Card>
         <Card className="p-4"><Stat label="Deals lost" value={lost.length} accent="var(--danger)" /></Card>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <SectionTitle>Top performers</SectionTitle>
-          {users.filter((u) => u.role === "bda").map((b, i) => (
+          {topBdas.length === 0 && <p className="text-xs text-[var(--muted)]">No one is in the BDA department yet.</p>}
+          {topBdas.map(({ b, won }, i) => (
             <div key={b.id} className="flex items-center gap-2 py-1.5">
               <span className="w-5 text-sm font-bold text-[var(--muted-2)]">{i + 1}</span>
               <Avatar name={b.name} size={28} />
               <span className="flex-1 text-sm">{b.name}</span>
-              <span className="text-sm font-semibold">{inr(leads.filter((l) => l.ownerId === b.id && l.stage === "won").reduce((s, l) => s + l.estimatedValue, 0), { compact: true })}</span>
+              <span className="text-sm font-semibold">{inr(won, { compact: true })}</span>
             </div>
           ))}
         </Card>
@@ -169,26 +197,33 @@ function Dossier() {
   const activities = useApp((s) => s.activities);
   const audit = useApp((s) => s.audit);
   const proposals = useApp((s) => s.proposals);
-  const bdas = users.filter((u) => u.role === "bda");
-  const [bdaId, setBdaId] = useState(bdas[0].id);
+  const bdas = useBdas();
+  const [picked, setPicked] = useState("");
   const [range, setRange] = useState("30");
+  const bdaId = picked || bdas[0]?.id || "";
 
-  const person = userById(bdaId)!;
+  // the date-range picker now actually limits the activity counted
+  const since = sinceDaysAgo(Number(range) - 1);
   const data = useMemo(() => {
     const bl = leads.filter((l) => l.ownerId === bdaId);
-    const bc = calls.filter((c) => c.agentId === bdaId);
-    const ba = activities.filter((a) => a.actorId === bdaId);
-    const bau = audit.filter((e) => e.actorId === bdaId);
-    const bp = proposals.filter((p) => p.ownerId === bdaId);
+    const bc = calls.filter((c) => c.agentId === bdaId && c.at >= since);
+    const ba = activities.filter((a) => a.actorId === bdaId && a.at >= since);
+    const bau = audit.filter((e) => e.actorId === bdaId && e.at >= since);
+    const bp = proposals.filter((p) => p.ownerId === bdaId && p.createdAt >= since);
     return { bl, bc, ba, bau, bp };
-  }, [leads, calls, activities, audit, proposals, bdaId]);
+  }, [leads, calls, activities, audit, proposals, bdaId, since]);
+
+  const person = userById(bdaId);
+  if (!person) {
+    return <Card className="p-6 text-center text-sm text-[var(--muted)]">No one is in the BDA department yet.</Card>;
+  }
 
   return (
     <div className="space-y-4">
       <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
         <label className="flex-1">
           <span className="mb-1 block text-xs font-medium text-[var(--muted)]">BDA</span>
-          <select value={bdaId} onChange={(e) => setBdaId(e.target.value)} className="h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm">
+          <select value={bdaId} onChange={(e) => setPicked(e.target.value)} className="h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm">
             {bdas.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </label>
@@ -203,7 +238,7 @@ function Dossier() {
           title={`Dossier — ${person.name}`}
           buildHtml={() =>
             `<h1>Activity Dossier — ${person.name}</h1><div class="muted">Last ${range} days · confidential</div>` +
-            htmlTable(["Metric", "Value"], [["Calls logged", data.bc.length + 210], ["Proposals", data.bp.length], ["Deals won", data.bl.filter((l) => l.stage === "won").length], ["Record edits", data.bau.filter((e) => e.action === "update").length]]) +
+            htmlTable(["Metric", "Value"], [["Calls logged", data.bc.length], ["Proposals", data.bp.length], ["Deals won", data.bl.filter((l) => l.stage === "won").length], ["Record edits", data.bau.filter((e) => e.action === "update").length]]) +
             `<h1 style="font-size:14px;margin-top:16px">Leads handled</h1>` +
             htmlTable(["Company", "Stage"], data.bl.map((l) => [l.company, l.stage.replace("_", " ")])) +
             `<h1 style="font-size:14px;margin-top:16px">Audit trail</h1>` +
@@ -218,13 +253,13 @@ function Dossier() {
           <Avatar name={person.name} size={44} />
           <div>
             <div className="text-lg font-bold">{person.name}</div>
-            <div className="text-xs text-[var(--muted)]">Full activity dossier · last {range} days · {userById(person.teamId ?? "")?.name}</div>
+            <div className="text-xs text-[var(--muted)]">Full activity dossier · last {range} days{person.designation ? ` · ${person.designation}` : ""}</div>
           </div>
           <Badge color="warning" className="ml-auto"><ShieldCheck size={12} /> Confidential</Badge>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <DossierStat icon={<PhoneCall size={15} />} label="Calls logged" value={data.bc.length + 210} />
+          <DossierStat icon={<PhoneCall size={15} />} label="Calls logged" value={data.bc.length} />
           <DossierStat icon={<FileText size={15} />} label="Proposals" value={data.bp.length} />
           <DossierStat icon={<CheckCircle2 size={15} />} label="Deals won" value={data.bl.filter((l) => l.stage === "won").length} />
           <DossierStat icon={<Pencil size={15} />} label="Record edits" value={data.bau.filter((e) => e.action === "update").length} />

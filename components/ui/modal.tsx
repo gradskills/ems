@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,9 +31,15 @@ export function Modal({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  // Modals only open via client interaction (never during SSR), so guarding on
+  // `document` is enough to keep createPortal client-only without a mount effect.
+  if (!open || typeof document === "undefined") return null;
   const widths = { sm: "max-w-md", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-4xl" };
-  return (
+  // Render into <body> so the overlay's `position: fixed` is relative to the
+  // viewport. A page-level ancestor with a transform (e.g. the .page-enter
+  // entrance animation) would otherwise become the containing block and drop the
+  // centered dialog far down a tall page, leaving only the blurred backdrop.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in" onClick={onClose} />
       <div
@@ -52,7 +59,8 @@ export function Modal({
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

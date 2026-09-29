@@ -12,7 +12,7 @@
 // actions call explicitly.
 // ─────────────────────────────────────────────────────────────
 import { getSupabase } from "@/lib/supabase/client";
-import { genericToRow, userToRow } from "@/lib/supabase/map";
+import { genericToRow, userToRow, attendanceToApp } from "@/lib/supabase/map";
 import type { AttendanceRecord, LeaveRequest, User } from "@/lib/types";
 
 let suspended = false;
@@ -100,18 +100,30 @@ export function persistChanges(prev: Record<string, unknown>, next: Record<strin
 
 // ── dedicated helpers for the int-keyed HR tables ──────────────
 
+// Writes for the same (user, day) are chained so they land in order. Without
+// this, a quick clock-in → break → clock-out could race: two "select then
+// insert" calls could both insert (duplicate day rows), or an older write could
+// finish last and undo a newer one.
+const attendanceQueue = new Map<string, Promise<unknown>>();
+function enqueueAttendance<T>(key: string, job: () => Promise<T>): Promise<T> {
+  const prev = attendanceQueue.get(key) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(job);
+  attendanceQueue.set(key, next);
+  void next.finally(() => { if (attendanceQueue.get(key) === next) attendanceQueue.delete(key); }).catch(() => {});
+  return next;
+}
+
 /** Upsert one attendance record, keyed by (user_id, work_date). */
 export async function persistAttendance(rec: AttendanceRecord) {
   const sb = getSupabase();
   if (!sb || suspended) return;
   const openBreak = (rec.breaks ?? []).find((b) => !b.endedAt);
-  const row = {
+  const row: Record<string, unknown> = {
     user_id: Number(rec.userId),
     work_date: rec.date,
     status: rec.status,
     punch_in_time: rec.checkIn ?? null,
     punch_out_time: rec.checkOut ?? null,
-    punch_in_photo: rec.checkInPhoto ?? null,
     punch_in_latitude: rec.checkInCoords?.lat ?? null,
     punch_in_longitude: rec.checkInCoords?.lng ?? null,
     hours_worked: rec.workedMinutes != null ? rec.workedMinutes / 60 : null,
@@ -119,13 +131,35 @@ export async function persistAttendance(rec: AttendanceRecord) {
     on_break: Boolean(rec.onBreak),
     current_break_start_time: rec.onBreak ? openBreak?.startedAt ?? null : null,
   };
-  const { data: existing } = await sb
-    .from("attendance").select("id").eq("user_id", row.user_id).eq("work_date", row.work_date).limit(1);
-  if (existing && existing.length) {
-    await sb.from("attendance").update(row).eq("id", (existing[0] as { id: number }).id).then(({ error }) => warn("attendance update", error));
-  } else {
-    await sb.from("attendance").insert(row).then(({ error }) => warn("attendance insert", error));
-  }
+  // Selfies load after the rest of the app (see hydrate). Only write the photo
+  // when we actually have it, so a record whose photo hasn't arrived yet
+  // doesn't erase the stored one.
+  if (rec.checkInPhoto !== undefined) row.punch_in_photo = rec.checkInPhoto;
+  await enqueueAttendance(`${rec.userId}:${rec.date}`, async () => {
+    const { data: existing } = await sb
+      .from("attendance").select("id").eq("user_id", row.user_id).eq("work_date", row.work_date).limit(1);
+    if (existing && existing.length) {
+      await sb.from("attendance").update(row).eq("id", (existing[0] as { id: number }).id).then(({ error }) => warn("attendance update", error));
+    } else {
+      await sb.from("attendance").insert(row).then(({ error }) => warn("attendance insert", error));
+    }
+  });
+}
+
+/**
+ * Read one person's attendance row for a day straight from the database
+ * (after any queued writes for that day have landed). `undefined` = the read
+ * failed (offline / not configured); `null` = there is no row for that day.
+ */
+export async function fetchAttendanceDay(userId: string, date: string): Promise<AttendanceRecord | null | undefined> {
+  const sb = getSupabase();
+  if (!sb || !/^\d+$/.test(userId)) return undefined;
+  return enqueueAttendance(`${userId}:${date}`, async () => {
+    const { data, error } = await sb
+      .from("attendance").select("*").eq("user_id", Number(userId)).eq("work_date", date).order("id").limit(1);
+    if (error) { warn("attendance read", error); return undefined; }
+    return data && data.length ? attendanceToApp(data[0] as Record<string, unknown>) : null;
+  });
 }
 
 /** Insert one leave-request row per date in the [from, to] range. */

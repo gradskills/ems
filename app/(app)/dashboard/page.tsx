@@ -3,7 +3,9 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { useApp, labelStage } from "@/lib/store";
-import { users, userById } from "@/lib/seed/users";
+import { userById } from "@/lib/seed/users";
+import { visibleEmployees } from "@/lib/ems";
+import { isBda, bdaStats, startOfMonthISO } from "@/lib/bda";
 import type { LeadStage } from "@/lib/types";
 import { Card, Avatar, Badge, ProgressBar, SectionTitle, Stat } from "@/components/ui/primitives";
 import { inr } from "@/lib/utils";
@@ -15,18 +17,20 @@ const funnelOrder: LeadStage[] = ["new", "contacted", "qualified", "proposal_sen
 export default function DashboardPage() {
   const leads = useApp((s) => s.leads);
   const calls = useApp((s) => s.calls);
+  const activities = useApp((s) => s.activities);
+  const proposals = useApp((s) => s.proposals);
+  const employees = useApp((s) => s.employees);
   const role = useApp((s) => s.role);
   const actingUserId = useApp((s) => s.actingUserId);
 
-  // manager sees own team; admin sees all
+  // Only people in the BDA department — admin sees all of them, a manager
+  // sees the BDAs in their reporting line.
   const bdas = useMemo(() => {
-    const all = users.filter((u) => u.role === "bda");
-    if (role === "manager") {
-      const teamId = userById(actingUserId)?.teamId;
-      return all.filter((u) => u.teamId === teamId);
-    }
-    return all;
-  }, [role, actingUserId]);
+    const viewer = userById(actingUserId);
+    const pool = viewer ? visibleEmployees(viewer, employees) : employees;
+    return pool.filter(isBda);
+  }, [employees, actingUserId]);
+  const monthStart = startOfMonthISO();
 
   const bdaIds = bdas.map((b) => b.id);
   const scopedLeads = leads.filter((l) => bdaIds.includes(l.ownerId));
@@ -64,7 +68,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card className="p-4"><Stat label="Open pipeline" value={inr(totalPipeline, { compact: true })} sub={`${scopedLeads.filter((l) => !["won", "lost"].includes(l.stage)).length} live leads`} /></Card>
         <Card className="p-4"><Stat label="Won this period" value={inr(wonValue, { compact: true })} sub={`${scopedLeads.filter((l) => l.stage === "won").length} deals`} accent="var(--success)" /></Card>
-        <Card className="p-4"><Stat label="Calls logged" value={calls.filter((c) => bdaIds.includes(c.agentId)).length} sub="all-time (demo)" /></Card>
+        <Card className="p-4"><Stat label="Calls logged" value={calls.filter((c) => bdaIds.includes(c.agentId) && c.at >= monthStart).length} sub="this month" /></Card>
         <Card className="p-4"><Stat label="Leakage alerts" value={leakage.length} sub="need attention" accent={leakage.length ? "var(--danger)" : undefined} /></Card>
       </div>
 
@@ -125,6 +129,7 @@ export default function DashboardPage() {
       <Card className="overflow-hidden">
         <div className="border-b border-[var(--border)] px-4 py-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold"><Users2 size={16} /> BDA activity scorecard</h2>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">Calls &amp; connects this month · leads and pipeline as of now</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
@@ -140,13 +145,13 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
+              {bdas.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-[var(--muted)]">No one is in the BDA department yet.</td></tr>
+              )}
               {bdas.map((b) => {
-                const bl = leads.filter((l) => l.ownerId === b.id);
-                const bc = calls.filter((c) => c.agentId === b.id);
-                const connects = bc.filter((c) => c.disposition === "connected").length;
-                const openPipe = bl.filter((l) => !["won", "lost"].includes(l.stage)).reduce((s, l) => s + l.estimatedValue, 0);
-                const wv = bl.filter((l) => l.stage === "won").reduce((s, l) => s + l.estimatedValue, 0);
-                const target = b.monthlyTargetRevenue ?? 500000;
+                const st = bdaStats(b.id, { leads, calls, activities, proposals }, monthStart);
+                const wv = st.wonValue;
+                const target = b.monthlyTargetRevenue;
                 return (
                   <tr key={b.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
                     <td className="px-4 py-3">
@@ -154,22 +159,26 @@ export default function DashboardPage() {
                         <Avatar name={b.name} size={30} />
                         <div>
                           <div className="font-medium">{b.name}</div>
-                          <div className="text-[11px] text-[var(--muted-2)]">{userById(b.teamId ?? "")?.name}</div>
+                          <div className="text-[11px] text-[var(--muted-2)]">{b.designation ?? ""}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">{bc.length + 240}</td>
-                    <td className="px-4 py-3">{connects + 140}</td>
-                    <td className="px-4 py-3">{bl.filter((l) => !["won", "lost"].includes(l.stage)).length}</td>
-                    <td className="px-4 py-3 font-medium">{inr(openPipe, { compact: true })}</td>
+                    <td className="px-4 py-3">{st.calls}</td>
+                    <td className="px-4 py-3">{st.connects}{st.calls > 0 && <span className="ml-1 text-[11px] text-[var(--muted-2)]">({st.connectRate}%)</span>}</td>
+                    <td className="px-4 py-3">{st.openLeads}</td>
+                    <td className="px-4 py-3 font-medium">{inr(st.openPipeline, { compact: true })}</td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 font-semibold text-[var(--success)]">{inr(wv, { compact: true })}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="w-24">
-                        <ProgressBar value={wv} max={target} color={wv >= target ? "var(--success)" : "var(--primary)"} />
-                        <div className="mt-0.5 text-[10px] text-[var(--muted-2)]">{Math.round((wv / target) * 100)}%</div>
-                      </div>
+                      {target ? (
+                        <div className="w-24">
+                          <ProgressBar value={wv} max={target} color={wv >= target ? "var(--success)" : "var(--primary)"} />
+                          <div className="mt-0.5 text-[10px] text-[var(--muted-2)]">{Math.round((wv / target) * 100)}% of {inr(target, { compact: true })}</div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-2)]">No target set</span>
+                      )}
                     </td>
                   </tr>
                 );

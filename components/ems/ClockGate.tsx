@@ -5,16 +5,19 @@ import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { clockGateSeen, markClockGateSeen } from "@/lib/auth";
+import { localDateISO } from "@/lib/utils";
 import { CameraCapture } from "@/components/ems/CameraCapture";
 import { LogIn, Clock, MapPin, X } from "lucide-react";
 
 // Shown once per calendar day, the first time someone opens the app, unless
 // they've already clocked in. They can clock in right here or dismiss and do it
-// later from the Clock page.
+// later from the Clock page. It waits for attendance to load from the database —
+// before that, an empty list would make everyone look "not clocked in".
 export function ClockGate() {
   const actingUserId = useApp((s) => s.actingUserId);
   const authReady = useApp((s) => s.authReady);
   const authUserId = useApp((s) => s.authUserId);
+  const dataReady = useApp((s) => s.dataReady);
   const attendance = useApp((s) => s.attendance);
   const employees = useApp((s) => s.employees);
   const clockIn = useApp((s) => s.clockIn);
@@ -24,21 +27,21 @@ export function ClockGate() {
   const [err, setErr] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const me = employees.find((e) => e.id === actingUserId) ?? userById(actingUserId);
   const todayRec = attendance.find((a) => a.userId === actingUserId && a.date === today);
   const clockedIn = !!todayRec?.checkIn;
 
   // decide whether to show, once the session is known and per acting user
   useEffect(() => {
-    if (!authReady || !authUserId) return; // only for a signed-in session
+    if (!authReady || !authUserId || !dataReady) return; // signed in AND attendance loaded
     if (me?.accessLevel === "admin") { setOpen(false); return; } // admins don't clock in
     if (clockedIn) { markClockGateSeen(actingUserId, today); setOpen(false); return; }
     setOpen(!clockGateSeen(actingUserId, today));
     setErr("");
-  }, [authReady, authUserId, actingUserId, clockedIn, today, me?.accessLevel]);
+  }, [authReady, authUserId, dataReady, actingUserId, clockedIn, today, me?.accessLevel]);
 
-  if (!open || !me || me.accessLevel === "admin") return null;
+  if (!open || !dataReady || !me || me.accessLevel === "admin") return null;
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";

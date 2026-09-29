@@ -9,7 +9,7 @@ import { Card, Badge, Avatar, Button, Stat, ProgressBar } from "@/components/ui/
 import { PageHeader } from "@/components/ems/kit";
 import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
 import { visibleEmployees, leaveTypeLabel, priorityColor, taskStatusColor, taskStatusLabel, auditReportColor, auditReportLabel } from "@/lib/ems";
-import { formatDate } from "@/lib/utils";
+import { formatDate, localDateISO } from "@/lib/utils";
 import { Check, X, CalendarCheck, FileText, FileSearch, Users, AlertTriangle, ArrowRight, ClipboardList } from "lucide-react";
 
 const priRank: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
@@ -24,7 +24,7 @@ export default function OverviewPage() {
   const auditReports = useApp((s) => s.auditReports);
   const decideLeave = useApp((s) => s.decideLeave);
   const me = userById(actingUserId)!;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
 
   const team = useMemo(() => visibleEmployees(me, employees), [me, employees]);
   const teamIds = useMemo(() => new Set(team.map((u) => u.id)), [team]);

@@ -86,11 +86,12 @@ import { forms as seedForms, formResponses as seedFormResponses } from "@/lib/se
 import { meetings as seedMeetings } from "@/lib/seed/meetings";
 import { proposalTotals } from "@/lib/qims";
 import { todaysBirthdays, todayISO } from "@/lib/birthdays";
-import { hydrateAll } from "@/lib/supabase/hydrate";
+import { hydrateAll, hydrateAttendancePhotos } from "@/lib/supabase/hydrate";
 import {
   persistChanges, setPersistSuspended,
-  persistAttendance, persistLeaveApply, persistLeaveDecision, persistLeaveDelete, persistUserUpdate,
+  persistAttendance, fetchAttendanceDay, persistLeaveApply, persistLeaveDecision, persistLeaveDelete, persistUserUpdate,
 } from "@/lib/supabase/persist";
+import { localDateISO } from "@/lib/utils";
 
 export type SendChannel = "email" | "whatsapp";
 export interface NewLeadInput {
@@ -140,6 +141,8 @@ interface AppState {
   // ── Supabase data hydration ──
   dataReady: boolean; // true once the store has loaded (or attempted to load) from Supabase
   hydrateData: () => Promise<void>; // load all slices from Supabase (client only)
+  // re-read the signed-in person's attendance for today (another device may have clocked in/out)
+  refreshTodayAttendance: () => Promise<void>;
   login: (loginId: string, password: string) => Promise<{ ok: boolean; mustChangePassword?: boolean; error?: string }>;
   logout: () => void;
   changePassword: (userId: string, current: string, next: string) => Promise<{ ok: boolean; error?: string }>;
@@ -450,6 +453,18 @@ function pushAudit(state: AppState, e: Omit<AuditEntry, "id" | "at" | "actorId" 
   };
 }
 
+// the in-flight Supabase load, if any (see hydrateData)
+let hydrating: Promise<void> | null = null;
+
+// Replace (or add / drop) one person's record for a day with the database copy,
+// keeping a selfie we already hold if the fresh row hasn't brought one.
+function mergeDay(list: AttendanceRecord[], userId: string, date: string, fresh: AttendanceRecord | null): AttendanceRecord[] {
+  const current = list.find((a) => a.userId === userId && a.date === date);
+  if (!fresh) return list; // nothing stored for that day — leave local state alone
+  const merged = { ...fresh, checkInPhoto: fresh.checkInPhoto ?? current?.checkInPhoto, fixRequested: current?.fixRequested, fixRequestedAt: current?.fixRequestedAt };
+  return current ? list.map((a) => (a === current ? merged : a)) : [merged, ...list];
+}
+
 export const useApp = create<AppState>((rawSet, get) => {
   // Wrap `set` so every mutation is diffed and written through to Supabase.
   const set = ((partial: unknown, replace?: boolean) => {
@@ -461,7 +476,7 @@ export const useApp = create<AppState>((rawSet, get) => {
   // Persist today's attendance record for the acting user (int-keyed table).
   const persistDay = () => {
     const s = get();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateISO();
     const rec = s.attendance.find((a) => a.userId === s.actingUserId && a.date === today);
     if (rec) void persistAttendance(rec);
   };
@@ -514,20 +529,43 @@ export const useApp = create<AppState>((rawSet, get) => {
   authReady: false,
   dataReady: false,
   credentialEmails: [],
-  hydrateData: async () => {
-    setPersistSuspended(true);
-    try {
-      const data = await hydrateAll();
-      if (data) set(data as Partial<AppState>);
-    } catch (e) {
-      console.error("[store] hydrateData failed:", e);
-    } finally {
-      setPersistSuspended(false);
-      // Overlay browser-local extras (company days + personal ID-card fields)
-      // AFTER the Supabase load so they aren't overwritten by the fetched rows.
-      set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
-      set({ dataReady: true });
-    }
+  hydrateData: () => {
+    // One load at a time: a second concurrent run (React dev double-effects, a
+    // remount) would overwrite the store with an older snapshot and silently
+    // undo anything done in between — e.g. a fresh clock-in.
+    if (hydrating) return hydrating;
+    hydrating = (async () => {
+      setPersistSuspended(true);
+      try {
+        const data = await hydrateAll();
+        if (data) set(data as Partial<AppState>);
+      } catch (e) {
+        console.error("[store] hydrateData failed:", e);
+      } finally {
+        setPersistSuspended(false);
+        // Overlay browser-local extras (company days + personal ID-card fields)
+        // AFTER the Supabase load so they aren't overwritten by the fetched rows.
+        set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
+        set({ dataReady: true });
+      }
+      // Selfies are the bulk of the attendance payload; pull them in after the
+      // app is usable and slot them into the already-loaded records.
+      void hydrateAttendancePhotos().then((photos) => {
+        if (!photos || !photos.size) return;
+        rawSet((s) => ({
+          attendance: s.attendance.map((a) => (a.checkInPhoto === undefined && photos.has(a.id) ? { ...a, checkInPhoto: photos.get(a.id) } : a)),
+        }));
+      });
+    })().finally(() => { hydrating = null; });
+    return hydrating;
+  },
+  refreshTodayAttendance: async () => {
+    const { authUserId, dataReady } = get();
+    if (!authUserId || !dataReady) return;
+    const today = localDateISO();
+    const fresh = await fetchAttendanceDay(authUserId, today);
+    if (fresh === undefined) return; // couldn't reach the database — keep what we have
+    set((s) => ({ attendance: mergeDay(s.attendance, authUserId, today, fresh) }));
   },
   hydrateExtras: () => {
     set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
@@ -1338,8 +1376,18 @@ export const useApp = create<AppState>((rawSet, get) => {
     const tz = opts?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const photo = opts?.photo;
     const status = opts?.wfh ? "wfh" : "present";
+    // Check the database first: this screen may be stale (opened before a
+    // clock-in on another device). If the day is already punched in, adopt that
+    // record instead of overwriting its time — or reopening a clocked-out day.
+    const uid = get().actingUserId;
+    const day = localDateISO();
+    const fresh = await fetchAttendanceDay(uid, day);
+    if (fresh?.checkIn) {
+      set((s) => ({ attendance: mergeDay(s.attendance, uid, day, fresh) }));
+      return true;
+    }
     set((s) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateISO();
       const now = new Date().toISOString();
       const existing = s.attendance.find((a) => a.userId === s.actingUserId && a.date === today);
       if (existing) {
@@ -1355,7 +1403,7 @@ export const useApp = create<AppState>((rawSet, get) => {
 
   clockOut: () => {
     set((s) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateISO();
       const now = new Date().toISOString();
       return {
         attendance: s.attendance.map((a) => {
@@ -1402,11 +1450,21 @@ export const useApp = create<AppState>((rawSet, get) => {
     if (rec) void persistAttendance(rec);
   },
 
-  requestAttendanceFix: (date, note) =>
+  requestAttendanceFix: (date, note) => {
+    const uid = get().actingUserId;
+    const at = new Date().toISOString();
+    // Flag the record so admins now see this forgotten-punch-out day in their
+    // "needs review" list. Before the request it silently counts as a half-day.
+    set((s) => ({
+      attendance: s.attendance.map((a) =>
+        a.userId === uid && a.date === date ? { ...a, fixRequested: true, fixRequestedAt: at } : a
+      ),
+    }));
+    const rec = get().attendance.find((a) => a.userId === uid && a.date === date);
+    if (rec) void persistAttendance(rec);
     set((s) => {
       const me = userById(s.actingUserId);
       const admins = s.employees.filter((e) => e.accessLevel === "admin");
-      const at = new Date().toISOString();
       const notifs: AppNotification[] = admins.map((a) => ({
         id: nid("N"), userId: a.id, kind: "system" as const,
         title: "Attendance fix requested",
@@ -1419,7 +1477,8 @@ export const useApp = create<AppState>((rawSet, get) => {
         at, read: false, href: "/my",
       };
       return { notifications: [...notifs, mine, ...s.notifications] };
-    }),
+    });
+  },
 
   // ── meetings ──
   scheduleMeeting: (input) => {
@@ -1511,7 +1570,7 @@ export const useApp = create<AppState>((rawSet, get) => {
   // ── break sessions on today's attendance ──
   startBreak: (type, minutes) => {
     set((s) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateISO();
       const now = new Date().toISOString();
       const brk: BreakSession = { id: nid("BRK"), type, startedAt: now, plannedMinutes: minutes, remindersSent: 0 };
       const existing = s.attendance.find((a) => a.userId === s.actingUserId && a.date === today);
@@ -1528,7 +1587,7 @@ export const useApp = create<AppState>((rawSet, get) => {
 
   endBreak: () => {
     set((s) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateISO();
       const now = new Date().toISOString();
       return {
         attendance: s.attendance.map((a) => {
@@ -1548,7 +1607,7 @@ export const useApp = create<AppState>((rawSet, get) => {
 
   breakReminder: (breakId) =>
     set((s) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateISO();
       let type: BreakType | undefined;
       const attendance = s.attendance.map((a) => {
         if (a.userId !== s.actingUserId || a.date !== today || !a.breaks) return a;

@@ -11,10 +11,12 @@ import {
   readReminderConfig, defaultReminderConfig, hasFired, markFired, nowHHmm, playChime,
 } from "@/lib/reminders";
 import { shiftById } from "@/lib/shifts";
+import { localDateISO } from "@/lib/utils";
 
 export function ClockReminderRunner() {
   const actingUserId = useApp((s) => s.actingUserId);
   const authReady = useApp((s) => s.authReady);
+  const dataReady = useApp((s) => s.dataReady);
   const shifts = useApp((s) => s.shifts);
   const notify = useApp((s) => s.notify);
   const runBirthdayGreetings = useApp((s) => s.runBirthdayGreetings);
@@ -31,7 +33,8 @@ export function ClockReminderRunner() {
   }, [authReady, runBirthdayGreetings]);
 
   useEffect(() => {
-    if (!authReady || !me || isAdmin) return;
+    // wait for attendance to load, or "Time to clock in" fires for people who already have
+    if (!authReady || !dataReady || !me || isAdmin) return;
 
     function fire(kind: "in" | "out") {
       const label = kind === "in" ? "Time to clock in" : "Time to clock out";
@@ -50,7 +53,7 @@ export function ClockReminderRunner() {
     function tick() {
       const cfg = readReminderConfig(me!.id, defaultReminderConfig(shift));
       const now = nowHHmm();
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateISO();
       // read the freshest attendance from the store (avoids a stale closure)
       const rec = useApp.getState().attendance.find((a) => a.userId === me!.id && a.date === today);
 
@@ -68,7 +71,7 @@ export function ClockReminderRunner() {
     const id = setInterval(tick, 30_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, actingUserId, isAdmin, shiftKey]);
+  }, [authReady, dataReady, actingUserId, isAdmin, shiftKey]);
 
   return null;
 }
