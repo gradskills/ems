@@ -491,7 +491,7 @@ export default function AttendancePage() {
       )}
 
       {photoModal && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setPhotoModal(null)}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[var(--overlay)] p-4 backdrop-blur-[2px]" onClick={() => setPhotoModal(null)}>
           <div className="relative max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-3 text-sm font-semibold">{photoModal.name}&apos;s clock-in selfie</h3>
             <img src={photoModal.src} alt="Clock-in selfie" className="w-full rounded-xl" style={{ transform: "scaleX(-1)" }} />

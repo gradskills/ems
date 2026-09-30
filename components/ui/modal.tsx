@@ -40,11 +40,14 @@ export function Modal({
   // entrance animation) would otherwise become the containing block and drop the
   // centered dialog far down a tall page, leaving only the blurred backdrop.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
+      <div className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-[2px] animate-in" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-[var(--surface)] shadow-[var(--shadow-lg)] animate-in sm:rounded-2xl",
+          // A guaranteed gutter (the container's sm:p-6) + a dvh-based cap keeps the
+          // dialog fully on-screen on any height: header and footer never clip, and
+          // only the middle scrolls. dvh (not vh) tracks mobile browser chrome.
+          "relative z-10 flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-[var(--surface)] shadow-[var(--shadow-lg)] animate-in sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl",
           widths[size]
         )}
       >

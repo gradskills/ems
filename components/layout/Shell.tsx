@@ -145,7 +145,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile drawer backdrop */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden" onClick={closeMobile} />
+        <div className="fixed inset-0 z-40 bg-[var(--overlay)] backdrop-blur-[2px] lg:hidden" onClick={closeMobile} />
       )}
 
       {/* Mobile drawer sidebar */}
