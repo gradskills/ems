@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/store";
 import { homePathFor } from "@/lib/ems";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { Sparkles, KeyRound, User as UserIcon, Eye, EyeOff, LogIn } from "lucide-react";
+import { AppLogo } from "@/components/layout/AppLogo";
+import { KeyRound, User as UserIcon, Eye, EyeOff, LogIn } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -56,11 +57,8 @@ export default function LoginPage() {
       </div>
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--primary)] text-white">
-            <Sparkles size={24} />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight">Gradskills EMS</h1>
-          <p className="text-sm text-[var(--muted)]">Sign in to your workspace</p>
+          <AppLogo size={48} stacked />
+          <p className="mt-1 text-sm text-[var(--muted)]">Sign in to your workspace</p>
         </div>
 
         <form onSubmit={submit} className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-lg)]">

@@ -556,7 +556,16 @@ export interface Task {
   id: string;
   title: string;
   description?: string;
+  // Primary assignee — kept for back-compat and single-person displays.
+  // The canonical list is `assigneeIds` (falls back to `[assigneeId]`).
   assigneeId: string;
+  // A task can be assigned to multiple people. Everyone listed sees it in "Mine".
+  assigneeIds?: string[];
+  // Participants explicitly granted edit rights by the creator/admin. An assignee
+  // who is NOT in this list (and isn't the creator/an admin/a managing manager)
+  // can view the task but cannot edit it — admin-assigned work is read-only until
+  // edit access is granted.
+  editorIds?: string[];
   createdById: string;
   departmentId: string;
   projectId?: string;
@@ -783,6 +792,12 @@ export interface CompanySettings {
   ifsc: string;
   logoText: string;
   logoDataUrl?: string; // uploaded logo (data: URL) — replaces logoText on documents
+  // ── in-app branding (sidebar / top bar / login mark) ──
+  // These theme the running app itself, independent of the document logo above.
+  appName?: string;        // brand text next to the mark (e.g. "Gradskills")
+  appTagline?: string;     // small uppercase line under it (e.g. "EMS")
+  appIcon?: string;        // lucide icon name for the mark when no image is set
+  appLogoDataUrl?: string; // uploaded square app logo (data: URL) — replaces the icon mark
   signatureName: string;
   signatureRole: string;
   signatureDataUrl?: string; // uploaded signature image (data: URL)

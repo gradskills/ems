@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { createElement, useRef, useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { Card, Button, Badge } from "@/components/ui/primitives";
@@ -11,6 +11,8 @@ import {
   printDocument, quotationHtml, invoiceHtml, receiptHtml, auditReportHtml,
 } from "@/lib/documents";
 import type { CompanySettings, AuditReport, Proposal, Invoice } from "@/lib/types";
+import { APP_ICON_NAMES, appIconComponent } from "@/lib/branding";
+import { cn } from "@/lib/utils";
 import { Check, Upload, Eye, ImageIcon, FileText, Receipt, FileSearch, X, Pencil } from "lucide-react";
 
 type Tab = "identity" | "bank" | "templates" | "rules";
@@ -30,6 +32,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("identity");
   const logoRef = useRef<HTMLInputElement>(null);
   const sigRef = useRef<HTMLInputElement>(null);
+  const appLogoRef = useRef<HTMLInputElement>(null);
 
   function set<K extends keyof CompanySettings>(k: K, v: CompanySettings[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -40,7 +43,7 @@ export default function SettingsPage() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
-  function upload(file: File | undefined, key: "logoDataUrl" | "signatureDataUrl") {
+  function upload(file: File | undefined, key: "logoDataUrl" | "signatureDataUrl" | "appLogoDataUrl") {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => set(key, String(reader.result));
@@ -52,7 +55,7 @@ export default function SettingsPage() {
   // preview always renders — a settings screen should never have dead buttons.
   const sampleLead = leadById("L-101");
   const nowIso = new Date().toISOString();
-  const plusDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+  const plusDays = (n: number) => new Date(new Date().getTime() + n * 86_400_000).toISOString();
   const sampleCompany = sampleLead?.company ?? "Sample Client Pvt Ltd";
 
   const sampleProposal: Proposal = {
@@ -117,7 +120,57 @@ export default function SettingsPage() {
       {tab === "identity" && (
         <div className="space-y-4">
           <Card className="p-5">
-            <h3 className="mb-3 text-sm font-semibold">Logo</h3>
+            <h3 className="mb-1 text-sm font-semibold">App branding</h3>
+            <p className="mb-3 text-xs text-[var(--muted)]">The mark &amp; name shown in the sidebar, top bar and login screen. Pick an icon or upload a square logo image.</p>
+            <div className="flex flex-wrap items-start gap-5">
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-[var(--surface-2)]">
+                  {form.appLogoDataUrl ? (
+                    <img src={form.appLogoDataUrl} alt="app logo" className="h-14 w-14 rounded-lg object-contain" />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--primary)] text-white">{createElement(appIconComponent(form.appIcon), { size: 26 })}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button variant="outline" size="sm" onClick={() => appLogoRef.current?.click()}><Upload size={13} /> Image</Button>
+                  {form.appLogoDataUrl && <Button variant="ghost" size="sm" onClick={() => set("appLogoDataUrl", undefined)}><X size={13} /></Button>}
+                </div>
+                <input ref={appLogoRef} type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0], "appLogoDataUrl")} />
+              </div>
+              <div className="min-w-0 flex-1 space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="App name" hint="Shown next to the logo"><Input value={form.appName ?? ""} onChange={(e) => set("appName", e.target.value)} placeholder="Gradskills" /></Field>
+                  <Field label="Short tag" hint="Small line under the name, e.g. EMS"><Input value={form.appTagline ?? ""} onChange={(e) => set("appTagline", e.target.value)} placeholder="EMS" /></Field>
+                </div>
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-[var(--muted)]">Logo icon {form.appLogoDataUrl ? <span className="text-[var(--muted-2)]">(hidden while an image is set)</span> : null}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {APP_ICON_NAMES.map((name) => {
+                      const active = (form.appIcon ?? "Sparkles") === name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => set("appIcon", name)}
+                          aria-label={name}
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                            active ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]" : "border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                          )}
+                        >
+                          {createElement(appIconComponent(name), { size: 17 })}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="mb-1 text-sm font-semibold">Document logo</h3>
+            <p className="mb-3 text-xs text-[var(--muted)]">Printed on every audit, quotation, invoice &amp; receipt (separate from the app logo above).</p>
             <div className="flex flex-wrap items-center gap-5">
               <div className="flex h-24 w-48 items-center justify-center rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)]">
                 {form.logoDataUrl ? (

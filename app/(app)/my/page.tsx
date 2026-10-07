@@ -11,7 +11,7 @@ import { ClockCard } from "@/components/ems/ClockCard";
 import { CameraCapture } from "@/components/ems/CameraCapture";
 import { AttendanceCalendar } from "@/components/ems/AttendanceCalendar";
 import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
-import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel } from "@/lib/ems";
+import { attendanceSummary, taskStatusColor, taskStatusLabel, priorityColor, leaveStatusColor, leaveTypeLabel, roleLabel, taskAssignees } from "@/lib/ems";
 import { formatDate, inr, localDateISO } from "@/lib/utils";
 import { CalendarPlus, CheckSquare, Users, CalendarClock, Target, Settings, Building2, ShieldCheck, ChevronRight, AlertTriangle, LifeBuoy } from "lucide-react";
 
@@ -47,7 +47,7 @@ export default function MyDashboardPage() {
   };
   const fmtT = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—");
   const myAtt = attendanceSummary(attendance.filter((a) => a.userId === me.id));
-  const myTasks = tasks.filter((t) => t.assigneeId === me.id && t.status !== "done").sort((a, b) => (a.dueAt ?? "") < (b.dueAt ?? "") ? -1 : 1);
+  const myTasks = tasks.filter((t) => taskAssignees(t).includes(me.id) && t.status !== "done").sort((a, b) => (a.dueAt ?? "") < (b.dueAt ?? "") ? -1 : 1);
   const myLeaves = leaves.filter((l) => l.userId === me.id).slice(0, 4);
   const myAnnouncements = announcements.filter((a) => a.audience === "all" || a.audience === me.departmentId).slice(0, 3);
 

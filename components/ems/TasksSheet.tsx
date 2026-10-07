@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Avatar, Button, selectCellCls } from "@/components/ui/primitives";
-import { taskColumns, taskStatusLabel, visibleEmployees } from "@/lib/ems";
+import { taskColumns, taskStatusLabel, taskAssignees } from "@/lib/ems";
 import { cn, isPast } from "@/lib/utils";
 import { Pencil, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 import type { Task, TaskStatus, TaskPriority, User } from "@/lib/types";
@@ -20,16 +20,10 @@ interface TasksSheetProps {
 }
 
 export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
-  const employees = useApp((s) => s.employees);
   const projects = useApp((s) => s.projects);
   const moveTask = useApp((s) => s.moveTask);
   const updateTask = useApp((s) => s.updateTask);
   const deleteTask = useApp((s) => s.deleteTask);
-
-  const assignable = useMemo(
-    () => (me.accessLevel !== "employee" ? visibleEmployees(me, employees) : [me]),
-    [me, employees]
-  );
 
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
@@ -97,7 +91,8 @@ export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
           </thead>
           <tbody>
             {rows.map((t, i) => {
-              const assignee = userById(t.assigneeId);
+              const assigneeList = taskAssignees(t);
+              const firstAssignee = userById(assigneeList[0]);
               const editable = canEdit(t);
               const overdue = t.status !== "done" && isPast(t.dueAt);
               return (
@@ -129,21 +124,20 @@ export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
                     )}
                   </td>
 
-                  {/* assignee */}
+                  {/* assignees — read-only summary; change via the task editor */}
                   <td className="px-3 py-1.5">
-                    {editable ? (
-                      <select
-                        value={t.assigneeId}
-                        onChange={(e) => updateTask(t.id, { assigneeId: e.target.value })}
-                        className={selectCellCls(true)}
-                      >
-                        {assignable.map((u) => (
-                          <option key={u.id} value={u.id}>{u.id === me.id ? "Me" : u.name}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="flex items-center gap-1.5 px-1.5">{assignee && <><Avatar name={assignee.name} size={20} /><span className="text-xs text-[var(--muted)]">{assignee.id === me.id ? "Me" : assignee.name}</span></>}</div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => editable && onEdit(t)}
+                      className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left", editable ? "hover:bg-[var(--surface-2)]" : "cursor-default")}
+                      title={assigneeList.map((id) => userById(id)?.name ?? id).join(", ")}
+                    >
+                      {firstAssignee && <Avatar name={firstAssignee.name} size={20} src={firstAssignee.avatarUrl} />}
+                      <span className="truncate text-xs text-[var(--muted)]">
+                        {firstAssignee ? (firstAssignee.id === me.id ? "Me" : firstAssignee.name) : "Unassigned"}
+                        {assigneeList.length > 1 ? ` +${assigneeList.length - 1}` : ""}
+                      </span>
+                    </button>
                   </td>
 
                   {/* status */}

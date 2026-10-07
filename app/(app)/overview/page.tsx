@@ -8,7 +8,7 @@ import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, Button, Stat, ProgressBar } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
 import { BirthdayBanner } from "@/components/ems/BirthdayBanner";
-import { visibleEmployees, leaveTypeLabel, priorityColor, taskStatusColor, taskStatusLabel, auditReportColor, auditReportLabel } from "@/lib/ems";
+import { visibleEmployees, leaveTypeLabel, priorityColor, taskStatusColor, taskStatusLabel, auditReportColor, auditReportLabel, taskAssignees } from "@/lib/ems";
 import { formatDate, localDateISO } from "@/lib/utils";
 import { Check, X, CalendarCheck, FileText, FileSearch, Users, AlertTriangle, ArrowRight, ClipboardList } from "lucide-react";
 
@@ -41,7 +41,7 @@ export default function OverviewPage() {
   const pendingLeaves = leaves.filter((l) => l.status === "pending" && teamIds.has(l.userId) && l.userId !== me.id);
   const quotationsToVerify = proposals.filter((p) => p.reviewStatus === "internal_review" || (p.approval?.required && !p.approval.approvedBy));
   const reportsToVerify = auditReports.filter((r) => r.status === "pending_verification");
-  const teamTasks = tasks.filter((t) => teamIds.has(t.assigneeId) && t.status !== "done");
+  const teamTasks = tasks.filter((t) => taskAssignees(t).some((id) => teamIds.has(id)) && t.status !== "done");
   const overdue = teamTasks.filter((t) => t.dueAt && t.dueAt.slice(0, 10) < today).sort((a, b) => priRank[a.priority] - priRank[b.priority]);
   const dueToday = teamTasks.filter((t) => t.dueAt && t.dueAt.slice(0, 10) === today);
 
@@ -128,7 +128,7 @@ export default function OverviewPage() {
             </div>
             <div className="space-y-2">
               {reports.map((u) => {
-                const open = tasks.filter((t) => t.assigneeId === u.id && t.status !== "done");
+                const open = tasks.filter((t) => taskAssignees(t).includes(u.id) && t.status !== "done");
                 if (open.length === 0) return null;
                 const dept = departmentById(u.departmentId);
                 return (

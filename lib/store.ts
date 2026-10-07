@@ -92,6 +92,7 @@ import {
   persistAttendance, fetchAttendanceDay, persistLeaveApply, persistLeaveDecision, persistLeaveDelete, persistUserUpdate,
 } from "@/lib/supabase/persist";
 import { localDateISO } from "@/lib/utils";
+import { buildPayslip } from "@/lib/ems";
 
 export type SendChannel = "email" | "whatsapp";
 export interface NewLeadInput {
@@ -280,6 +281,9 @@ interface AppState {
   deleteTicket: (id: string) => void;
   updatePayslip: (id: string, patch: Partial<Payslip>) => void;
   deletePayslip: (id: string) => void;
+  // Generate draft payslips for a month from salary structures + attendance.
+  // Skips anyone who already has a payslip for that month. Returns the count made.
+  generatePayroll: (month: string, userIds: string[]) => number;
   saveCompany: (patch: Partial<CompanySettings>) => void;
   setApprovalRules: (patch: Partial<ApprovalRules>) => void;
   // ── QIMS: audit reports + quotation review + customer portal ──
@@ -383,7 +387,10 @@ export interface NewLeaveInput {
 export interface NewTaskInput {
   title: string;
   description?: string;
-  assigneeId: string;
+  // one or more assignees; the first is treated as the primary (back-compat)
+  assigneeIds: string[];
+  // assignees explicitly granted edit rights (subset of assigneeIds)
+  editorIds?: string[];
   departmentId: string;
   priority: Task["priority"];
   dueAt?: string;
@@ -1639,26 +1646,32 @@ export const useApp = create<AppState>((rawSet, get) => {
   createTask: (input) => {
     const id = nid("T");
     set((s) => {
+      const assigneeIds = input.assigneeIds.length ? Array.from(new Set(input.assigneeIds)) : [s.actingUserId];
+      const editorIds = (input.editorIds ?? []).filter((x) => assigneeIds.includes(x));
+      const createdAt = new Date().toISOString();
       const task: Task = {
         id,
         title: input.title,
         description: input.description,
-        assigneeId: input.assigneeId,
+        assigneeId: assigneeIds[0],
+        assigneeIds,
+        editorIds,
         createdById: s.actingUserId,
         departmentId: input.departmentId,
         projectId: input.projectId,
         status: input.status ?? "todo",
         priority: input.priority,
-        createdAt: new Date().toISOString(),
+        createdAt,
         dueAt: input.dueAt,
         loggedHrs: 0,
       };
-      const notify: AppNotification | null =
-        input.assigneeId !== s.actingUserId
-          ? { id: nid("N"), userId: input.assigneeId, kind: "task", title: "New task assigned", body: input.title, at: task.createdAt, read: false, href: "/tasks" }
-          : null;
-      const audit = pushAudit(s, { action: "create", entity: "task", entityId: id, entityLabel: input.title, after: userById(input.assigneeId)?.name });
-      return { tasks: [task, ...s.tasks], notifications: notify ? [notify, ...s.notifications] : s.notifications, audit: [audit, ...s.audit] };
+      // notify every assignee except whoever created the task
+      const notifs: AppNotification[] = assigneeIds
+        .filter((uid) => uid !== s.actingUserId)
+        .map((uid) => ({ id: nid("N"), userId: uid, kind: "task" as const, title: "New task assigned", body: input.title, at: createdAt, read: false, href: "/tasks" }));
+      const names = assigneeIds.map((uid) => userById(uid)?.name).filter(Boolean).join(", ");
+      const audit = pushAudit(s, { action: "create", entity: "task", entityId: id, entityLabel: input.title, after: names });
+      return { tasks: [task, ...s.tasks], notifications: [...notifs, ...s.notifications], audit: [audit, ...s.audit] };
     });
     return id;
   },
@@ -1812,13 +1825,24 @@ export const useApp = create<AppState>((rawSet, get) => {
     set((s) => {
       const t = s.tasks.find((x) => x.id === id);
       if (!t) return s;
-      const audit = pushAudit(s, { action: "update", entity: "task", entityId: id, entityLabel: patch.title ?? t.title });
-      // notify the assignee if reassigned to someone else
-      const reassigned = patch.assigneeId && patch.assigneeId !== t.assigneeId && patch.assigneeId !== s.actingUserId;
-      const notify = reassigned
-        ? [{ id: nid("N"), userId: patch.assigneeId!, kind: "task" as const, title: "Task assigned to you", body: patch.title ?? t.title, at: new Date().toISOString(), read: false, href: "/tasks" }, ...s.notifications]
-        : s.notifications;
-      return { tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...patch } : x)), audit: [audit, ...s.audit], notifications: notify };
+      const next: Task = { ...t, ...patch };
+      // keep the multi-assignee list, the primary id and the editor grants coherent
+      if (patch.assigneeIds) {
+        next.assigneeIds = Array.from(new Set(patch.assigneeIds));
+        next.assigneeId = next.assigneeIds[0] ?? next.assigneeId;
+      } else if (patch.assigneeId && !patch.assigneeIds) {
+        next.assigneeIds = [patch.assigneeId];
+      }
+      if (next.assigneeIds) {
+        const set = new Set(next.assigneeIds);
+        next.editorIds = (next.editorIds ?? []).filter((x) => set.has(x));
+      }
+      const audit = pushAudit(s, { action: "update", entity: "task", entityId: id, entityLabel: next.title });
+      // notify anyone newly assigned (in the new list, not the old one, not me)
+      const before = new Set([t.assigneeId, ...(t.assigneeIds ?? [])]);
+      const added = (next.assigneeIds ?? [next.assigneeId]).filter((uid) => !before.has(uid) && uid !== s.actingUserId);
+      const notifs: AppNotification[] = added.map((uid) => ({ id: nid("N"), userId: uid, kind: "task" as const, title: "Task assigned to you", body: next.title, at: new Date().toISOString(), read: false, href: "/tasks" }));
+      return { tasks: s.tasks.map((x) => (x.id === id ? next : x)), audit: [audit, ...s.audit], notifications: [...notifs, ...s.notifications] };
     }),
 
   deleteTask: (id) =>
@@ -1977,6 +2001,25 @@ export const useApp = create<AppState>((rawSet, get) => {
       const audit = pushAudit(s, { action: "delete", entity: "payslip", entityId: id, entityLabel: `${userById(p.userId)?.name ?? p.userId} · ${p.month}` });
       return { payslips: s.payslips.filter((x) => x.id !== id), audit: [audit, ...s.audit] };
     }),
+
+  generatePayroll: (month, userIds) => {
+    let made = 0;
+    set((s) => {
+      const existing = new Set(s.payslips.filter((p) => p.month === month).map((p) => p.userId));
+      const targets = s.employees.filter(
+        (e) => userIds.includes(e.id) && !existing.has(e.id) && e.status !== "resigned" && e.approvalStatus !== "rejected",
+      );
+      if (!targets.length) return s;
+      const fresh: Payslip[] = targets.map((emp) => {
+        const monthAtt = s.attendance.filter((a) => a.userId === emp.id && a.date.slice(0, 7) === month);
+        return buildPayslip(emp, month, monthAtt);
+      });
+      made = fresh.length;
+      const audit = pushAudit(s, { action: "create", entity: "payroll", entityId: month, entityLabel: `Payroll ${month}`, after: `${fresh.length} payslip(s) generated` });
+      return { payslips: [...fresh, ...s.payslips], audit: [audit, ...s.audit] };
+    });
+    return made;
+  },
 
   saveCompany: (patch) => set((s) => ({ company: { ...s.company, ...patch } })),
   setApprovalRules: (patch) => set((s) => ({ approvalRules: { ...s.approvalRules, ...patch } })),

@@ -13,7 +13,7 @@ import { downloadCSV, downloadPayslip } from "@/lib/exports";
 import {
   attendanceSummary, attendanceLabel, attendanceColor, leaveTypeLabel, leaveStatusColor,
   taskStatusColor, taskStatusLabel, priorityColor, projectStatusColor, projectStatusLabel, payslipTotals, monthLabel, roleLabel,
-  effectiveAttendanceStatus, needsAttendanceReview,
+  effectiveAttendanceStatus, needsAttendanceReview, taskAssignees,
 } from "@/lib/ems";
 import { ChevronLeft, Mail, Phone, MapPin, ChevronRight, Wallet, Download, Pencil, IdCard, CalendarClock, AlertTriangle } from "lucide-react";
 import { EditEmployeeModal } from "@/components/ems/EditEmployeeModal";
@@ -112,7 +112,7 @@ export function EmployeeProfile({
   const isWorkingNow = !!todayRec?.checkIn && !todayRec?.checkOut;
   const empLeaves = leaves.filter((l) => l.userId === emp.id);
   const empPayslips = payslips.filter((p) => p.userId === emp.id);
-  const empTasks = tasks.filter((t) => t.assigneeId === emp.id);
+  const empTasks = tasks.filter((t) => taskAssignees(t).includes(emp.id));
   const empProjects = projects.filter((p) => p.memberIds.includes(emp.id) || p.managerId === emp.id);
 
   const e = emp; // stable narrowed reference for closures below

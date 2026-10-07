@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Card, Badge, Avatar } from "@/components/ui/primitives";
-import { taskColumns, taskStatusLabel, taskStatusColor, priorityColor } from "@/lib/ems";
+import { taskColumns, taskStatusLabel, taskStatusColor, priorityColor, taskAssignees } from "@/lib/ems";
 import { cn, formatDate } from "@/lib/utils";
 import { Plus, Pencil, Trash2, GripVertical } from "lucide-react";
 import type { Task, TaskStatus } from "@/lib/types";
@@ -84,7 +84,7 @@ export function TasksBoard({ tasks, scope, canEdit, onEdit, onNew }: TasksBoardP
 
             <div className="min-h-[80px] space-y-2">
               {items.map((t) => {
-                const assignee = userById(t.assigneeId);
+                const assigneeList = taskAssignees(t);
                 const editable = canEdit(t);
                 const dragging = dragId === t.id;
                 return (
@@ -117,7 +117,17 @@ export function TasksBoard({ tasks, scope, canEdit, onEdit, onNew }: TasksBoardP
                         <Badge color={priorityColor[t.priority]}>{t.priority}</Badge>
                         {t.dueAt && <span className="text-[10px] text-[var(--muted-2)]">{formatDate(t.dueAt)}</span>}
                       </div>
-                      {scope === "team" && assignee && <Avatar name={assignee.name} size={22} />}
+                      {scope === "team" && assigneeList.length > 0 && (
+                        <div className="flex items-center -space-x-1.5">
+                          {assigneeList.slice(0, 3).map((id) => {
+                            const u = userById(id);
+                            return <span key={id} className="rounded-full ring-2 ring-[var(--surface)]" title={u?.name}><Avatar name={u?.name ?? "?"} size={22} src={u?.avatarUrl} /></span>;
+                          })}
+                          {assigneeList.length > 3 && (
+                            <span className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[var(--surface-2)] px-1 text-[10px] font-semibold text-[var(--muted)] ring-2 ring-[var(--surface)]">+{assigneeList.length - 3}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </Card>
                 );

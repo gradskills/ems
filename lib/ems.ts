@@ -12,6 +12,7 @@ import type {
   TicketStatus,
   AuditReportStatus,
   Payslip,
+  PayComponent,
   AttendanceRecord,
 } from "@/lib/types";
 import { reportsOf } from "@/lib/seed/users";
@@ -183,6 +184,48 @@ export const priorityColor: Record<TaskPriority, BadgeColor> = {
 };
 export const taskColumns: TaskStatus[] = ["todo", "in_progress", "review", "blocked", "done"];
 
+// ── multi-assignee + edit permissions ──────────────────────────
+// The canonical list of people a task is assigned to. Older/back-compat tasks
+// only carry `assigneeId`, so fall back to that.
+export function taskAssignees(t: { assigneeIds?: string[]; assigneeId: string }): string[] {
+  if (t.assigneeIds && t.assigneeIds.length) return t.assigneeIds;
+  return t.assigneeId ? [t.assigneeId] : [];
+}
+
+// The set of people whose tasks show up in a viewer's "Team" scope.
+//  • admin / manager → everyone they can see (visibleEmployees)
+//  • employee        → their department teammates (so everyone gets a Team view)
+export function teammateIds(viewer: User, all: User[]): Set<string> {
+  if (viewer.accessLevel !== "employee") {
+    return new Set(visibleEmployees(viewer, all).map((u) => u.id));
+  }
+  return new Set(all.filter((u) => u.departmentId === viewer.departmentId).map((u) => u.id).concat(viewer.id));
+}
+
+// Who may edit a task.
+//  • the creator — always
+//  • an admin — always (override)
+//  • anyone explicitly granted edit (editorIds)
+//  • a manager over any assignee — UNLESS the task was created by an admin
+//    (admin-assigned work stays read-only until the admin grants edit access)
+// Everyone else (including an assignee with no grant) gets a read-only view.
+export function canEditTask(
+  t: { createdById: string; editorIds?: string[]; assigneeIds?: string[]; assigneeId: string },
+  me: User,
+  all: User[],
+): boolean {
+  if (me.id === t.createdById) return true;
+  if (me.accessLevel === "admin") return true;
+  if ((t.editorIds ?? []).includes(me.id)) return true;
+  if (me.accessLevel === "manager") {
+    const creator = all.find((u) => u.id === t.createdById);
+    if (creator?.accessLevel === "admin") return false; // admin task needs explicit grant
+    const visible = new Set(visibleEmployees(me, all).map((u) => u.id));
+    if (taskAssignees(t).some((id) => visible.has(id))) return true;
+  }
+  return false;
+}
+
 // ── projects ──
 export const projectStatusColor: Record<ProjectStatus, BadgeColor> = {
   planning: "slate",
@@ -245,4 +288,74 @@ export function payslipTotals(p: Payslip) {
 export function monthLabel(ym: string) {
   const [y, m] = ym.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+}
+
+/** Calendar days in a YYYY-MM month. */
+export function daysInMonth(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+// Statutory/standard deduction knobs (prototype defaults).
+const PF_RATE = 0.12;            // 12% of basic → Provident Fund
+const PROFESSIONAL_TAX = 200;    // flat ₹200/month where applicable
+
+/**
+ * Build a payslip for one employee for a month from their salary structure and
+ * that month's attendance. Loss-of-pay days (absent, unexcused) prorate the
+ * gross; PF + professional tax are the standard deductions. The result is a
+ * draft the admin can fine-tune before processing.
+ */
+export function buildPayslip(
+  user: Pick<User, "id" | "salary" | "ctcAnnual">,
+  month: string,
+  monthAttendance: AttendanceRecord[],
+): Payslip {
+  const total = daysInMonth(month);
+  const today = localDateISO();
+  // LOP = full-day absences; a half-day counts as 0.5 LOP.
+  let lop = 0;
+  for (const a of monthAttendance) {
+    const eff = effectiveAttendanceStatus(a, today);
+    if (eff === "absent") lop += 1;
+    else if (eff === "half_day") lop += 0.5;
+  }
+  lop = Math.min(lop, total);
+  const paidDays = total - lop;
+  const factor = total > 0 ? paidDays / total : 1;
+
+  const salary = user.salary ?? (() => {
+    const monthly = Math.round((user.ctcAnnual ?? 0) / 12);
+    const basic = Math.round(monthly * 0.5);
+    const hra = Math.round(monthly * 0.2);
+    return { basic, hra, special: monthly - basic - hra };
+  })();
+
+  const r = (n: number) => Math.round(n * factor);
+  const earnings: PayComponent[] = [
+    { label: "Basic", amount: r(salary.basic) },
+    { label: "HRA", amount: r(salary.hra) },
+    { label: "Special allowance", amount: r(salary.special) },
+  ];
+  const gross = earnings.reduce((s, e) => s + e.amount, 0);
+
+  const deductions: PayComponent[] = [
+    { label: "Provident Fund", amount: Math.round(r(salary.basic) * PF_RATE) },
+    { label: "Professional tax", amount: PROFESSIONAL_TAX },
+  ];
+  const totalDed = deductions.reduce((s, d) => s + d.amount, 0);
+
+  return {
+    id: `pay-${user.id}-${month}`,
+    userId: user.id,
+    month,
+    status: "draft",
+    earnings,
+    deductions,
+    paidDays: Math.round(paidDays * 10) / 10,
+    lopDays: Math.round(lop * 10) / 10,
+    gross,
+    net: gross - totalDed,
+    generatedAt: new Date().toISOString(),
+  };
 }

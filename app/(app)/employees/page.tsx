@@ -7,7 +7,7 @@ import { userById } from "@/lib/seed/users";
 import { departmentById } from "@/lib/seed/org";
 import { Card, Badge, Avatar, Button, ProgressBar } from "@/components/ui/primitives";
 import { PageHeader, TableShell, SearchInput } from "@/components/ems/kit";
-import { visibleEmployees, attendanceSummary, roleLabel } from "@/lib/ems";
+import { visibleEmployees, attendanceSummary, roleLabel, taskAssignees } from "@/lib/ems";
 import { CreateEmployeeModal } from "@/components/ems/CreateEmployeeModal";
 import { Tabs, useTabs } from "@/components/ems/kit";
 import { downloadCSV } from "@/lib/exports";
@@ -155,7 +155,7 @@ export default function EmployeesPage() {
             const d = departmentById(u.departmentId);
             const mgr = u.managerId ? userById(u.managerId) : undefined;
             const att = attendanceSummary(attendance.filter((a) => a.userId === u.id));
-            const openTasks = tasks.filter((t) => t.assigneeId === u.id && t.status !== "done").length;
+            const openTasks = tasks.filter((t) => taskAssignees(t).includes(u.id) && t.status !== "done").length;
             return (
               <tr key={u.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
                 <td className="px-4 py-3">

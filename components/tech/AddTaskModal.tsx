@@ -29,7 +29,8 @@ export function AddTaskModal({ projectId, open, onClose }: { projectId: string; 
     createTask({
       title: title.trim(),
       description: description.trim() || undefined,
-      assigneeId,
+      assigneeIds: [assigneeId],
+      editorIds: [assigneeId], // the assignee can manage their own project task
       departmentId: "dept-tech",
       priority,
       status,

@@ -8,12 +8,13 @@ import { departmentById } from "@/lib/seed/org";
 import { roleLabel, lensesFor } from "@/lib/ems";
 import { navFor, mobileNavFor, workspaceLabel } from "./nav";
 import { Avatar } from "@/components/ui/primitives";
+import { AppLogo } from "@/components/layout/AppLogo";
 import { AppShellSkeleton } from "@/components/ui/skeleton";
 import { ClockGate } from "@/components/ems/ClockGate";
 import { ClockReminderRunner } from "@/components/ems/ClockReminderRunner";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
-import { ChevronsUpDown, Sparkles, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass, Settings as SettingsIcon, CircleUser } from "lucide-react";
+import { ChevronsUpDown, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass, Settings as SettingsIcon, CircleUser } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // routes only managers/admin may open; employees are bounced to /my
@@ -223,13 +224,7 @@ function SidebarContent({
   return (
     <>
       <div className="flex h-16 items-center gap-2 border-b border-[var(--border)] px-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
-          <Sparkles size={18} />
-        </div>
-        <div className="leading-tight">
-          <div className="text-sm font-bold">Gradskills</div>
-          <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-2)]">EMS</div>
-        </div>
+        <AppLogo size={32} />
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {/* Workspace sections — employees get "Personal" + their dept workspace
@@ -414,10 +409,7 @@ function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <Menu size={20} />
       </button>
       <div className="flex items-center gap-2 lg:hidden">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
-          <Sparkles size={18} />
-        </div>
-        <span className="text-sm font-bold">Gradskills EMS</span>
+        <AppLogo size={32} />
       </div>
       <div className="hidden lg:flex">
         <LensSwitcher />

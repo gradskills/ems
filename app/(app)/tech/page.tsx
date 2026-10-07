@@ -6,7 +6,7 @@ import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Card, Badge, Avatar, ProgressBar, SectionTitle, Stat } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ems/kit";
-import { projectStatusColor, projectStatusLabel, visibleProjects } from "@/lib/ems";
+import { projectStatusColor, projectStatusLabel, visibleProjects, taskAssignees } from "@/lib/ems";
 import { Code2, GitCommit, ChevronRight, CheckSquare } from "lucide-react";
 
 export default function TechDashboardPage() {
@@ -86,7 +86,7 @@ export default function TechDashboardPage() {
         <SectionTitle><span className="flex items-center gap-1.5"><CheckSquare size={15} /> Team task load</span></SectionTitle>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {team.map((u) => {
-            const mine = techTasks.filter((t) => t.assigneeId === u.id);
+            const mine = techTasks.filter((t) => taskAssignees(t).includes(u.id));
             const open = mine.filter((t) => t.status !== "done").length;
             return (
               <Link key={u.id} href={`/employees/${u.id}`} className="flex items-center gap-2.5 rounded-lg border border-[var(--border)] p-2.5 hover:bg-[var(--surface-2)]">
