@@ -86,11 +86,14 @@ import { forms as seedForms, formResponses as seedFormResponses } from "@/lib/se
 import { meetings as seedMeetings } from "@/lib/seed/meetings";
 import { proposalTotals } from "@/lib/qims";
 import { todaysBirthdays, todayISO } from "@/lib/birthdays";
-import { hydrateAll, hydrateAttendancePhotos } from "@/lib/supabase/hydrate";
+import { hydrateAll, hydrateAttendancePhotos, fetchMyWorkspaces } from "@/lib/supabase/hydrate";
 import {
-  persistChanges, setPersistSuspended,
+  persistChanges, setPersistSuspended, setActiveWorkspace,
   persistAttendance, fetchAttendanceDay, persistLeaveApply, persistLeaveDecision, persistLeaveDelete, persistUserUpdate,
+  persistWorkspace, persistWorkspaceMember, seedWorkspaceRows, archiveWorkspace,
 } from "@/lib/supabase/persist";
+import { DEFAULT_WORKSPACE_ID, ALL_MODULES } from "@/lib/workspace";
+import type { Workspace, WorkspaceModule } from "@/lib/types";
 import { localDateISO } from "@/lib/utils";
 import { buildPayslip } from "@/lib/ems";
 
@@ -118,8 +121,41 @@ const nid = (p: string) => `${p}-${++idc}`;
 const navKey = (userId: string) => `navCollapsed:${userId}`;
 // bottom-nav customization is remembered per user too (order + which items show)
 const mobileNavKey = (userId: string) => `mobileNav:${userId}`;
+// the workspace a person last had open is remembered per user, so signing back
+// in lands them in the same business they were working in
+const activeWsKey = (userId: string) => `activeWorkspace:${userId}`;
+
+function readActiveWs(userId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try { return localStorage.getItem(activeWsKey(userId)); } catch { return null; }
+}
+function writeActiveWs(userId: string, workspaceId: string) {
+  if (typeof window === "undefined") return;
+  try { localStorage.setItem(activeWsKey(userId), workspaceId); } catch { /* ignore */ }
+}
 
 interface AppState {
+  // ── workspaces (multi-business) ──
+  // The businesses the signed-in person can switch between, and which one is
+  // currently open. All data slices below belong to `activeWorkspaceId`.
+  workspaces: Workspace[];
+  activeWorkspaceId: string;
+  workspacesReady: boolean; // the user's workspace list has been loaded
+  // load the signed-in user's workspaces + pick the active one (client only)
+  hydrateWorkspaces: (userId: string) => Promise<void>;
+  // switch the open business — swaps the entire dataset
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  // create a new business the acting user owns, then switch into it
+  createWorkspace: (input: NewWorkspaceInput) => Promise<string>;
+  // rename / re-icon a workspace
+  updateWorkspace: (id: string, patch: Partial<Pick<Workspace, "name" | "icon">>) => void;
+  // turn modules on/off for a workspace
+  updateWorkspaceModules: (id: string, modules: WorkspaceModule[]) => void;
+  // remove a workspace from the switcher (soft-delete; keeps its data)
+  archiveWorkspace: (id: string) => void;
+  // the currently-open workspace object (helper)
+  activeWorkspace: () => Workspace | undefined;
+
   // ── who is using the app (role switcher) ──
   actingUserId: string;
   role: Role;
@@ -347,6 +383,12 @@ export interface NewPaymentInput {
   note?: string;
 }
 
+export interface NewWorkspaceInput {
+  name: string;
+  modules: WorkspaceModule[];
+  icon?: string;
+}
+
 export interface NewEmployeeInput {
   name: string;
   email: string;
@@ -488,7 +530,126 @@ export const useApp = create<AppState>((rawSet, get) => {
     if (rec) void persistAttendance(rec);
   };
 
+  // Load the active workspace's whole dataset from Supabase into the store.
+  // Shared by the initial hydrate and every workspace switch, so switching a
+  // business swaps every slice. Persistence is suspended during the load so the
+  // fetched snapshot isn't echoed straight back as writes.
+  const loadActiveWorkspace = async () => {
+    const wsId = get().activeWorkspaceId;
+    setActiveWorkspace(wsId);
+    setPersistSuspended(true);
+    try {
+      const data = await hydrateAll(wsId);
+      if (data) set(data as Partial<AppState>);
+    } catch (e) {
+      console.error("[store] loadActiveWorkspace failed:", e);
+    } finally {
+      setPersistSuspended(false);
+      // Overlay browser-local extras (company days + personal ID-card fields)
+      // AFTER the Supabase load so they aren't overwritten by the fetched rows.
+      set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
+      set({ dataReady: true });
+    }
+    // Selfies are the bulk of the attendance payload; pull them in after the
+    // app is usable and slot them into the already-loaded records.
+    void hydrateAttendancePhotos(wsId).then((photos) => {
+      if (!photos || !photos.size) return;
+      rawSet((s) => ({
+        attendance: s.attendance.map((a) => (a.checkInPhoto === undefined && photos.has(a.id) ? { ...a, checkInPhoto: photos.get(a.id) } : a)),
+      }));
+    });
+  };
+
   return {
+  // ── workspaces (multi-business) ──
+  workspaces: [],
+  activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+  workspacesReady: false,
+  activeWorkspace: () => get().workspaces.find((w) => w.id === get().activeWorkspaceId),
+  hydrateWorkspaces: async (userId) => {
+    const list = await fetchMyWorkspaces(userId);
+    let active = get().activeWorkspaceId;
+    if (list.length) {
+      const remembered = readActiveWs(userId);
+      active = remembered && list.some((w) => w.id === remembered) ? remembered : list[0].id;
+    }
+    setActiveWorkspace(active);
+    set({ workspaces: list, activeWorkspaceId: active, workspacesReady: true });
+  },
+  switchWorkspace: async (workspaceId) => {
+    const { activeWorkspaceId, authUserId, actingUserId, workspaces } = get();
+    if (workspaceId === activeWorkspaceId) return;
+    if (!workspaces.some((w) => w.id === workspaceId)) return; // not a member
+    const uid = authUserId ?? actingUserId;
+    writeActiveWs(uid, workspaceId);
+    setActiveWorkspace(workspaceId);
+    // Clear nav prefs so a dropped module's pinned items don't linger, and show
+    // the skeleton while the new business loads.
+    set({ activeWorkspaceId: workspaceId, dataReady: false, viewLens: "management" });
+    hydrating = loadActiveWorkspace().finally(() => { hydrating = null; });
+    await hydrating;
+    // land the owner on their dashboard after the swap
+    get().hydrateNav();
+  },
+  createWorkspace: async (input) => {
+    const id = nid("ws");
+    const ownerId = get().authUserId ?? get().actingUserId;
+    const modules = input.modules.length ? input.modules : [...ALL_MODULES];
+    // Each workspace owns its own departments (unique ids so they never collide
+    // across businesses). Always an Admin department; add module-relevant ones.
+    const suffix = id.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    const depts: Department[] = [
+      { id: `dept-${suffix}-admin`, key: "admin", name: "Admin", color: "danger", icon: "ShieldCheck", features: [], system: true },
+    ];
+    if (modules.includes("sales")) depts.push({ id: `dept-${suffix}-bda`, key: "bda", name: "BDA", color: "primary", icon: "Phone", features: ["leads", "quotations", "invoices", "prospect_audit", "audit_reports"], system: false });
+    if (modules.includes("projects")) depts.push({ id: `dept-${suffix}-tech`, key: "tech", name: "Tech", color: "info", icon: "Code2", features: ["projects", "timesheets", "bugs"], system: false });
+    if (modules.includes("media")) depts.push({ id: `dept-${suffix}-media`, key: "media", name: "Media", color: "purple", icon: "Megaphone", features: ["clients", "content_calendar", "campaigns"], system: false });
+    if (depts.length === 1) depts.push({ id: `dept-${suffix}-team`, key: "team", name: "Team", color: "slate", icon: "Users", features: [], system: false });
+
+    const ws: Workspace = {
+      id,
+      ownerUserId: ownerId,
+      name: input.name.trim() || "New workspace",
+      slug: (input.name.trim() || "workspace").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+      modules,
+      icon: input.icon,
+      createdAt: new Date().toISOString(),
+      archived: false,
+    };
+    // Persist the workspace row, the owner's membership, and the starter rows
+    // (settings/rules/departments). A fresh workspace reuses the seed company
+    // profile as a starting point the owner then edits in Settings.
+    await persistWorkspace(ws);
+    await persistWorkspaceMember(id, ownerId, "admin");
+    const freshCompany = { ...seedCompany, legalName: ws.name, brandName: ws.name, appName: ws.name, appIcon: input.icon ?? seedCompany.appIcon };
+    await seedWorkspaceRows(id, freshCompany, seedApprovalRules, depts);
+    set((s) => ({ workspaces: [...s.workspaces, ws] }));
+    // Switch straight into the new business.
+    await get().switchWorkspace(id);
+    return id;
+  },
+  updateWorkspace: (id, patch) => {
+    const w = get().workspaces.find((x) => x.id === id);
+    if (!w) return;
+    const next = { ...w, ...patch };
+    set((s) => ({ workspaces: s.workspaces.map((x) => (x.id === id ? next : x)) }));
+    void persistWorkspace(next);
+  },
+  updateWorkspaceModules: (id, modules) => {
+    const w = get().workspaces.find((x) => x.id === id);
+    if (!w) return;
+    const next = { ...w, modules };
+    set((s) => ({ workspaces: s.workspaces.map((x) => (x.id === id ? next : x)) }));
+    void persistWorkspace(next);
+  },
+  archiveWorkspace: (id) => {
+    if (id === DEFAULT_WORKSPACE_ID) return; // never remove the primary business
+    const list = get().workspaces.filter((w) => w.id !== id);
+    set((s) => ({ workspaces: s.workspaces.filter((w) => w.id !== id) }));
+    void archiveWorkspace(id);
+    if (get().activeWorkspaceId === id && list.length) void get().switchWorkspace(list[0].id);
+  },
+
   actingUserId: CURRENT_BDA_ID,
   role: "bda",
   viewLens: "management",
@@ -542,27 +703,15 @@ export const useApp = create<AppState>((rawSet, get) => {
     // undo anything done in between — e.g. a fresh clock-in.
     if (hydrating) return hydrating;
     hydrating = (async () => {
-      setPersistSuspended(true);
-      try {
-        const data = await hydrateAll();
-        if (data) set(data as Partial<AppState>);
-      } catch (e) {
-        console.error("[store] hydrateData failed:", e);
-      } finally {
-        setPersistSuspended(false);
-        // Overlay browser-local extras (company days + personal ID-card fields)
-        // AFTER the Supabase load so they aren't overwritten by the fetched rows.
-        set((s) => ({ companyDays: readCompanyDays(), shifts: readShifts(), employees: applyShiftAssignments(applyPersonalExtras(s.employees)) }));
-        set({ dataReady: true });
+      // Figure out who is signed in (session may not have hydrated yet) and
+      // load their workspaces so `activeWorkspaceId` points at the right
+      // business BEFORE we read any data scoped to it.
+      let uid = get().authUserId;
+      if (!uid) { const stored = readAuth(); if (stored) uid = stored; }
+      if (uid && !get().workspacesReady) {
+        try { await get().hydrateWorkspaces(uid); } catch { /* fall back to default workspace */ }
       }
-      // Selfies are the bulk of the attendance payload; pull them in after the
-      // app is usable and slot them into the already-loaded records.
-      void hydrateAttendancePhotos().then((photos) => {
-        if (!photos || !photos.size) return;
-        rawSet((s) => ({
-          attendance: s.attendance.map((a) => (a.checkInPhoto === undefined && photos.has(a.id) ? { ...a, checkInPhoto: photos.get(a.id) } : a)),
-        }));
-      });
+      await loadActiveWorkspace();
     })().finally(() => { hydrating = null; });
     return hydrating;
   },
@@ -679,6 +828,9 @@ export const useApp = create<AppState>((rawSet, get) => {
       }));
       writeAuth(u.id);
       set({ authUserId: u.id, authReady: true, actingUserId: u.id, role: u.role, viewLens: u.accessLevel === "employee" ? u.departmentId : "management" });
+      // Load the businesses this person can access and pick the active one, so
+      // the post-login data load reads the right workspace.
+      await get().hydrateWorkspaces(u.id);
       get().hydrateNav();
       get().hydrateExtras(); // re-apply locally-saved personal ID-card fields
       return { ok: true, mustChangePassword: !!data.mustChangePassword };
@@ -688,7 +840,8 @@ export const useApp = create<AppState>((rawSet, get) => {
   },
   logout: () => {
     writeAuth(null);
-    set({ authUserId: null });
+    // Drop the workspace list so the next person's businesses load fresh.
+    set({ authUserId: null, workspaces: [], workspacesReady: false });
   },
   changePassword: async (userId, current, next) => {
     const u = get().employees.find((e) => e.id === userId);
@@ -1159,16 +1312,20 @@ export const useApp = create<AppState>((rawSet, get) => {
     // then swap the temporary id for the DB-assigned numeric id. The write-through
     // diff cleans up the temp-id credential/notification rows automatically.
     if (typeof window !== "undefined") {
+      const workspaceId = get().activeWorkspaceId;
       void (async () => {
         try {
           const res = await fetch("/api/employees", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...input, loginId, tempPassword: pwd, approvalStatus }),
+            body: JSON.stringify({ ...input, loginId, tempPassword: pwd, approvalStatus, workspaceId }),
           });
           const data = await res.json();
           if (data?.ok && data.id) {
             const realId: string = data.id;
+            // Enroll the new joiner as a member of this workspace so they appear
+            // in its roster (and only its roster).
+            void persistWorkspaceMember(workspaceId, realId, input.accessLevel);
             set((s) => ({
               employees: s.employees.map((e) => (e.id === id ? { ...e, id: realId, employeeId: data.employeeId } : e)),
               credentialEmails: s.credentialEmails.map((c) => (c.userId === id ? { ...c, userId: realId } : c)),

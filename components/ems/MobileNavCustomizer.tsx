@@ -5,6 +5,7 @@ import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Card, Button } from "@/components/ui/primitives";
 import { mobileNavPool, mobileNavFor } from "@/components/layout/nav";
+import { ALL_MODULES } from "@/lib/workspace";
 import { ArrowUp, ArrowDown, X, Plus, Smartphone, RotateCcw } from "lucide-react";
 
 const MAX = 5;
@@ -20,7 +21,10 @@ export function MobileNavCustomizer() {
   const departments = useApp((s) => s.departments);
   const mobileNav = useApp((s) => s.mobileNav);
   const setMobileNav = useApp((s) => s.setMobileNav);
+  const workspaces = useApp((s) => s.workspaces);
+  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId);
   const user = userById(actingUserId)!;
+  const modules = workspaces.find((w) => w.id === activeWorkspaceId)?.modules ?? ALL_MODULES;
 
   const effectiveDept =
     user.accessLevel === "employee"
@@ -29,13 +33,13 @@ export function MobileNavCustomizer() {
         ? undefined
         : departments.find((d) => d.id === viewLens);
 
-  const pool = useMemo(() => mobileNavPool(user, effectiveDept), [user, effectiveDept]);
+  const pool = useMemo(() => mobileNavPool(user, effectiveDept, modules), [user, effectiveDept, modules]);
   const byHref = useMemo(() => new Map(pool.map((n) => [n.href, n] as const)), [pool]);
 
   // current bar (saved prefs, or the resolved role default), as hrefs
   const initial = useMemo(
-    () => mobileNavFor(user, effectiveDept, mobileNav).map((n) => n.href),
-    [user, effectiveDept, mobileNav]
+    () => mobileNavFor(user, effectiveDept, mobileNav, modules).map((n) => n.href),
+    [user, effectiveDept, mobileNav, modules]
   );
   const [selected, setSelected] = useState<string[]>(initial);
   const [dirty, setDirty] = useState(false);
@@ -52,7 +56,7 @@ export function MobileNavCustomizer() {
   const add = (href: string) => { if (selected.length < MAX) change([...selected, href]); };
 
   const save = () => { setMobileNav(selected); setDirty(false); };
-  const reset = () => { setMobileNav(null); setSelected(mobileNavFor(user, effectiveDept, null).map((n) => n.href)); setDirty(false); };
+  const reset = () => { setMobileNav(null); setSelected(mobileNavFor(user, effectiveDept, null, modules).map((n) => n.href)); setDirty(false); };
 
   const available = pool.filter((n) => !selected.includes(n.href));
 

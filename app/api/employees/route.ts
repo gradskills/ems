@@ -41,6 +41,9 @@ export async function POST(req: Request) {
     login_id: b.loginId ?? null,
     password_hash: hash,
     must_change_password: true,
+    // Which business this person belongs to (multi-tenant). Defaults to the
+    // original Gradskills workspace when a caller doesn't specify one.
+    workspace_id: (typeof b.workspaceId === "string" && b.workspaceId) ? b.workspaceId : "ws-gradskills",
   };
 
   const { data, error } = await sb.from("users").insert(insert).select("id").single();

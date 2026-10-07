@@ -12,12 +12,19 @@
 // actions call explicitly.
 // ─────────────────────────────────────────────────────────────
 import { getSupabase } from "@/lib/supabase/client";
-import { genericToRow, userToRow, attendanceToApp } from "@/lib/supabase/map";
-import type { AttendanceRecord, LeaveRequest, User } from "@/lib/types";
+import { genericToRow, userToRow, attendanceToApp, workspaceToRow } from "@/lib/supabase/map";
+import type { AttendanceRecord, LeaveRequest, User, Workspace } from "@/lib/types";
+import { DEFAULT_WORKSPACE_ID } from "@/lib/workspace";
 
 let suspended = false;
 /** Suspend persistence (used while hydrating so a load isn't echoed back as writes). */
 export function setPersistSuspended(v: boolean) { suspended = v; }
+
+// The workspace every write is stamped into. The store sets this on hydrate and
+// on every workspace switch, so all data lands in the active business.
+let activeWs = DEFAULT_WORKSPACE_ID;
+export function setActiveWorkspace(id: string) { if (id) activeWs = id; }
+export function getActiveWorkspace() { return activeWs; }
 
 function warn(ctx: string, e: { message?: string } | null) {
   if (e) console.warn(`[persist] ${ctx}:`, e.message ?? e);
@@ -50,18 +57,22 @@ function diffArray(table: string, prev: AnyRow[], next: AnyRow[]) {
   for (const id of pById.keys()) if (!nById.has(id)) deletes.push(id);
 
   if (upserts.length) {
-    const rows = upserts.map((x) => genericToRow(x, table));
+    // Stamp the active workspace on every row so new records land in the right
+    // business. Existing rows keep whatever workspace they already carry.
+    const rows = upserts.map((x) => ({ workspace_id: activeWs, ...genericToRow(x, table) }));
     sb.from(table).upsert(rows).then(({ error }) => warn(`upsert ${table}`, error));
   }
   if (deletes.length) {
-    sb.from(table).delete().in("id", deletes).then(({ error }) => warn(`delete ${table}`, error));
+    sb.from(table).delete().eq("workspace_id", activeWs).in("id", deletes).then(({ error }) => warn(`delete ${table}`, error));
   }
 }
 
+// company_settings / approval_rules: one row per workspace, keyed by the
+// workspace id (the old single "default" row was repointed at migration time).
 function persistBlob(table: string, value: unknown) {
   const sb = getSupabase();
   if (!sb) return;
-  sb.from(table).upsert({ id: "default", data: value }).then(({ error }) => warn(`blob ${table}`, error));
+  sb.from(table).upsert({ id: activeWs, data: value }).then(({ error }) => warn(`blob ${table}`, error));
 }
 
 function diffKv(table: string, keyCol: string, valCol: string, prev: Record<string, unknown>, next: Record<string, unknown>, parseJson = false) {
@@ -70,11 +81,11 @@ function diffKv(table: string, keyCol: string, valCol: string, prev: Record<stri
   for (const k of Object.keys(next)) {
     if (prev[k] !== next[k]) {
       const v = parseJson ? safeParse(next[k]) : next[k];
-      sb.from(table).upsert({ [keyCol]: k, [valCol]: v }).then(({ error }) => warn(`kv ${table}`, error));
+      sb.from(table).upsert({ workspace_id: activeWs, [keyCol]: k, [valCol]: v }).then(({ error }) => warn(`kv ${table}`, error));
     }
   }
   for (const k of Object.keys(prev)) {
-    if (!(k in next)) sb.from(table).delete().eq(keyCol, k).then(({ error }) => warn(`kv-del ${table}`, error));
+    if (!(k in next)) sb.from(table).delete().eq("workspace_id", activeWs).eq(keyCol, k).then(({ error }) => warn(`kv-del ${table}`, error));
   }
 }
 function safeParse(v: unknown) { try { return typeof v === "string" ? JSON.parse(v) : v; } catch { return v; } }
@@ -119,6 +130,7 @@ export async function persistAttendance(rec: AttendanceRecord) {
   if (!sb || suspended) return;
   const openBreak = (rec.breaks ?? []).find((b) => !b.endedAt);
   const row: Record<string, unknown> = {
+    workspace_id: activeWs,
     user_id: Number(rec.userId),
     work_date: rec.date,
     status: rec.status,
@@ -137,7 +149,7 @@ export async function persistAttendance(rec: AttendanceRecord) {
   if (rec.checkInPhoto !== undefined) row.punch_in_photo = rec.checkInPhoto;
   await enqueueAttendance(`${rec.userId}:${rec.date}`, async () => {
     const { data: existing } = await sb
-      .from("attendance").select("id").eq("user_id", row.user_id).eq("work_date", row.work_date).limit(1);
+      .from("attendance").select("id").eq("workspace_id", activeWs).eq("user_id", row.user_id).eq("work_date", row.work_date).limit(1);
     if (existing && existing.length) {
       await sb.from("attendance").update(row).eq("id", (existing[0] as { id: number }).id).then(({ error }) => warn("attendance update", error));
     } else {
@@ -156,7 +168,7 @@ export async function fetchAttendanceDay(userId: string, date: string): Promise<
   if (!sb || !/^\d+$/.test(userId)) return undefined;
   return enqueueAttendance(`${userId}:${date}`, async () => {
     const { data, error } = await sb
-      .from("attendance").select("*").eq("user_id", Number(userId)).eq("work_date", date).order("id").limit(1);
+      .from("attendance").select("*").eq("workspace_id", activeWs).eq("user_id", Number(userId)).eq("work_date", date).order("id").limit(1);
     if (error) { warn("attendance read", error); return undefined; }
     return data && data.length ? attendanceToApp(data[0] as Record<string, unknown>) : null;
   });
@@ -170,7 +182,7 @@ export async function persistLeaveApply(rec: LeaveRequest) {
   const start = new Date(rec.from);
   const end = new Date(rec.to);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    rows.push({ user_id: Number(rec.userId), leave_date: d.toISOString().slice(0, 10), reason: rec.reason, status: "pending" });
+    rows.push({ workspace_id: activeWs, user_id: Number(rec.userId), leave_date: d.toISOString().slice(0, 10), reason: rec.reason, status: "pending" });
   }
   if (rows.length) await sb.from("leave_requests").insert(rows).then(({ error }) => warn("leave insert", error));
 }
@@ -198,4 +210,42 @@ export async function persistUserUpdate(id: string, patch: Partial<User>) {
   const row = userToRow(patch);
   if (Object.keys(row).length === 0) return;
   await sb.from("users").update(row).eq("id", Number(id)).then(({ error }) => warn("user update", error));
+}
+
+// ── workspaces ─────────────────────────────────────────────────
+
+/** Create or update a workspace row. */
+export async function persistWorkspace(w: Workspace) {
+  const sb = getSupabase();
+  if (!sb || suspended) return;
+  await sb.from("workspaces").upsert(workspaceToRow(w)).then(({ error }) => warn("workspace upsert", error));
+}
+
+/** Add a user to a workspace (idempotent). */
+export async function persistWorkspaceMember(workspaceId: string, userId: string, role?: string) {
+  const sb = getSupabase();
+  if (!sb || suspended || !/^\d+$/.test(userId)) return;
+  await sb.from("workspace_members")
+    .upsert({ workspace_id: workspaceId, user_id: Number(userId), role: role ?? null }, { onConflict: "workspace_id,user_id" })
+    .then(({ error }) => warn("workspace member", error));
+}
+
+/** Soft-delete a workspace (keeps its data; just drops it from switchers). */
+export async function archiveWorkspace(id: string) {
+  const sb = getSupabase();
+  if (!sb || suspended) return;
+  await sb.from("workspaces").update({ archived: true }).eq("id", id).then(({ error }) => warn("workspace archive", error));
+}
+
+/** Seed a brand-new workspace's starter rows: company settings, approval rules
+ *  and its departments. Called right after the workspace row is created. */
+export async function seedWorkspaceRows(workspaceId: string, company: unknown, approvalRules: unknown, departments: { id: string }[]) {
+  const sb = getSupabase();
+  if (!sb || suspended) return;
+  await sb.from("company_settings").upsert({ id: workspaceId, data: company }).then(({ error }) => warn("ws company", error));
+  await sb.from("approval_rules").upsert({ id: workspaceId, data: approvalRules }).then(({ error }) => warn("ws rules", error));
+  if (departments.length) {
+    const rows = departments.map((d) => ({ workspace_id: workspaceId, ...genericToRow(d, "departments") }));
+    await sb.from("departments").upsert(rows).then(({ error }) => warn("ws departments", error));
+  }
 }

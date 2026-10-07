@@ -4,6 +4,45 @@
 // in-memory fixtures to Supabase is mechanical, not a redesign.
 // ─────────────────────────────────────────────────────────────
 
+// ═══════════════════════════════════════════════════════════════
+// Workspaces — one person can run several businesses, each a fully
+// isolated workspace with its own employees, data and enabled modules.
+// ═══════════════════════════════════════════════════════════════
+
+// A top-level, toggleable product module. A workspace enables the set it needs;
+// nav + route access are gated by this on top of the per-department features.
+export type WorkspaceModule =
+  | "sales"        // BDA pipeline: leads, quotations, invoices, prospect audit, delivery, forms
+  | "qims"         // audit reports
+  | "projects"     // tech projects
+  | "media"        // media clients, content calendar, campaigns
+  | "attendance"   // attendance, shifts, leave requests, leaderboard
+  | "payroll"      // payroll runs + payslips
+  | "tasks"        // task board
+  | "meetings"     // meetings
+  | "helpdesk"     // tickets
+  | "announcements"// announcements
+  | "reports";     // reports dashboard
+
+export interface Workspace {
+  id: string;
+  ownerUserId: string;   // the person who owns this business
+  name: string;
+  slug?: string;
+  modules: WorkspaceModule[];
+  icon?: string;         // lucide icon name for the workspace mark
+  createdAt?: string;
+  archived?: boolean;
+}
+
+// Who can access a workspace. The owner (and any invited admins) may belong to
+// several; a regular employee belongs to exactly one.
+export interface WorkspaceMember {
+  workspaceId: string;
+  userId: string;
+  role?: string;
+}
+
 // Legacy sales-role triad — kept so the original BDA screens keep working.
 // New EMS code should read `accessLevel` + `departmentId` instead.
 export type Role = "bda" | "manager" | "admin";

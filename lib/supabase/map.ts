@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────
 import type {
   User, AttendanceRecord, AttendanceStatus, LeaveRequest, LeaveStatus, Role, AccessLevel,
+  Workspace, WorkspaceModule,
 } from "@/lib/types";
 
 type Row = Record<string, unknown>;
@@ -169,6 +170,34 @@ export function attendanceToApp(row: Row): AttendanceRecord {
       ? [{ id: `brk-${row.id}`, type: "casual", startedAt: curBreak, plannedMinutes: 0, remindersSent: 0 }]
       : [],
   };
+}
+
+// ── workspaces ─────────────────────────────────────────────────
+export function workspaceToApp(row: Row): Workspace {
+  const mods = row.modules;
+  return {
+    id: String(row.id),
+    ownerUserId: row.owner_user_id != null ? String(row.owner_user_id) : "",
+    name: (row.name as string) ?? "Workspace",
+    slug: (row.slug as string) ?? undefined,
+    modules: Array.isArray(mods) ? (mods as WorkspaceModule[]) : [],
+    icon: (row.icon as string) ?? undefined,
+    createdAt: (row.created_at as string) ?? undefined,
+    archived: Boolean(row.archived),
+  };
+}
+
+/** app Workspace (full or patch) → workspaces row. */
+export function workspaceToRow(w: Partial<Workspace>): Row {
+  const row: Row = {};
+  if (w.id !== undefined) row.id = w.id;
+  if (w.ownerUserId !== undefined) row.owner_user_id = Number(w.ownerUserId);
+  if (w.name !== undefined) row.name = w.name;
+  if (w.slug !== undefined) row.slug = w.slug;
+  if (w.modules !== undefined) row.modules = w.modules;
+  if (w.icon !== undefined) row.icon = w.icon ?? null;
+  if (w.archived !== undefined) row.archived = w.archived;
+  return row;
 }
 
 // ── leave_requests (single date in DB) ─────────────────────────

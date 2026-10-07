@@ -14,14 +14,16 @@ import { ClockGate } from "@/components/ems/ClockGate";
 import { ClockReminderRunner } from "@/components/ems/ClockReminderRunner";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
-import { ChevronsUpDown, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass, Settings as SettingsIcon, CircleUser } from "lucide-react";
+import { ALL_MODULES, pathEnabled } from "@/lib/workspace";
+import { appIconComponent } from "@/lib/branding";
+import { ChevronsUpDown, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass, Settings as SettingsIcon, CircleUser, Plus, Building2 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // routes only managers/admin may open; employees are bounced to /my
 // /overview is a management landing (renders "Your team overview" for managers,
 // "Organisation overview" for admin) — manager+admin, not admin-only.
 const MGR_ROUTES = ["/overview", "/employees", "/leaves", "/attendance", "/payroll", "/approvals", "/reports", "/audit"];
-const ADMIN_ROUTES = ["/departments", "/settings", "/shifts"];
+const ADMIN_ROUTES = ["/departments", "/settings", "/shifts", "/workspaces"];
 
 // Explicit ordering for the management-lens (admin/manager) workspace section, so
 // it reads: My Dashboard · My Tasks · Meetings · Who's In · Announcements · Helpdesk.
@@ -39,6 +41,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const authReady = useApp((s) => s.authReady);
   const authUserId = useApp((s) => s.authUserId);
   const hydrateAuth = useApp((s) => s.hydrateAuth);
+  // active workspace drives which top-level modules are available
+  const workspaces = useApp((s) => s.workspaces);
+  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId);
+  const workspacesReady = useApp((s) => s.workspacesReady);
+  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
+  const modules = activeWs?.modules ?? ALL_MODULES;
   const user = userById(actingUserId)!;
 
   // Sidebar collapsed-group state is restored per user by the store's hydrateNav()
@@ -66,6 +74,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
     if (user.accessLevel === "employee" && (hit(MGR_ROUTES) || hit(ADMIN_ROUTES))) router.replace("/my");
     else if (user.accessLevel === "manager" && hit(ADMIN_ROUTES)) router.replace("/my");
   }, [pathname, user.accessLevel, router, authReady, authUserId]);
+
+  // module guard — keep people out of screens whose module the active workspace
+  // has turned off. Only enforced once the workspace list is known, so the
+  // default (all modules) during load never triggers a false redirect.
+  useEffect(() => {
+    if (!authReady || !authUserId || !workspacesReady) return;
+    if (!pathEnabled(pathname, modules)) router.replace("/my");
+  }, [pathname, modules, workspacesReady, authReady, authUserId, router]);
   // effective department drives the workspace nav: own dept for employees,
   // the selected lens for managers/admin (undefined = the "Management" lens)
   const effectiveDept =
@@ -75,8 +91,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
         ? undefined
         : departments.find((d) => d.id === viewLens);
   const mobileNavPref = useApp((s) => s.mobileNav);
-  const nav = navFor(user, effectiveDept);
-  const mNav = mobileNavFor(user, effectiveDept, mobileNavPref);
+  const nav = navFor(user, effectiveDept, modules);
+  const mNav = mobileNavFor(user, effectiveDept, mobileNavPref, modules);
   const workLabel = workspaceLabel(user, effectiveDept);
   const overview = nav.filter((n) => n.group === "overview");
   const work = nav.filter((n) => n.group === "work");
@@ -223,8 +239,8 @@ function SidebarContent({
   ]);
   return (
     <>
-      <div className="flex h-16 items-center gap-2 border-b border-[var(--border)] px-5">
-        <AppLogo size={32} />
+      <div className="flex h-16 items-center border-b border-[var(--border)] px-3">
+        <WorkspaceSwitcher onNavClick={onNavClick} />
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {/* Workspace sections — employees get "Personal" + their dept workspace
@@ -241,6 +257,89 @@ function SidebarContent({
       </div>
       <RoleSwitcher />
     </>
+  );
+}
+
+// Top-of-sidebar business switcher. Shows the active workspace's mark + name and
+// opens a menu to switch between the businesses this person belongs to, create a
+// new one, or manage the current one (admins only). Reads the store directly so
+// it doesn't need props threaded through SidebarContent.
+function WorkspaceSwitcher({ onNavClick }: { onNavClick?: () => void }) {
+  const router = useRouter();
+  const workspaces = useApp((s) => s.workspaces);
+  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId);
+  const switchWorkspace = useApp((s) => s.switchWorkspace);
+  const actingUserId = useApp((s) => s.actingUserId);
+  const user = userById(actingUserId);
+  const isAdmin = user?.accessLevel === "admin";
+  const active = workspaces.find((w) => w.id === activeWorkspaceId);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  // Only admins can juggle multiple businesses; an employee just sees their mark.
+  const canManage = isAdmin;
+  const multi = workspaces.length > 1;
+  if (!canManage && !multi) {
+    return <div className="px-2"><AppLogo size={32} /></div>;
+  }
+
+  return (
+    <div ref={ref} className="relative w-full">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--surface-2)]"
+      >
+        <div className="min-w-0 flex-1"><AppLogo size={32} /></div>
+        <ChevronsUpDown size={15} className="shrink-0 text-[var(--muted-2)]" />
+      </button>
+      {open && (
+        <div className="absolute left-2 right-2 top-full z-50 mt-1 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)] animate-in">
+          <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+            Your businesses
+          </div>
+          <div className="max-h-[50vh] overflow-y-auto p-1">
+            {workspaces.map((w) => {
+              const Icon = appIconComponent(w.icon);
+              const isActive = w.id === activeWorkspaceId;
+              return (
+                <button
+                  key={w.id}
+                  onClick={() => { if (!isActive) void switchWorkspace(w.id); setOpen(false); onNavClick?.(); }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-[var(--surface-2)]"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--primary-soft)] text-[var(--primary)]">
+                    <Icon size={15} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{w.name}</span>
+                  {isActive && <Check size={15} className="shrink-0 text-[var(--primary)]" />}
+                </button>
+              );
+            })}
+          </div>
+          {canManage && (
+            <div className="border-t border-[var(--border)] p-1">
+              <button
+                onClick={() => { setOpen(false); onNavClick?.(); router.push("/workspaces/new"); }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-[var(--primary)] hover:bg-[var(--surface-2)]"
+              >
+                <Plus size={16} /> New business
+              </button>
+              <button
+                onClick={() => { setOpen(false); onNavClick?.(); router.push("/workspaces"); }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
+              >
+                <Building2 size={16} className="text-[var(--muted)]" /> Manage businesses
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

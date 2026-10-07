@@ -1,4 +1,5 @@
-import type { AccessLevel, DeptFeature, Department, User } from "@/lib/types";
+import type { AccessLevel, DeptFeature, Department, User, WorkspaceModule } from "@/lib/types";
+import { ALL_MODULES, pathEnabled } from "@/lib/workspace";
 import {
   Phone,
   Users,
@@ -140,9 +141,12 @@ export function contextFor(user: User, dept: Department | undefined): NavContext
   };
 }
 
-export function navFor(user: User, dept: Department | undefined): NavItem[] {
+export function navFor(user: User, dept: Department | undefined, modules: WorkspaceModule[] = ALL_MODULES): NavItem[] {
   const ctx = contextFor(user, dept);
-  return navItems.filter((n) => n.when(ctx));
+  const mods = new Set(modules);
+  // A nav item shows only when its role/feature predicate passes AND its module
+  // is enabled for the active workspace (core routes have no module → always on).
+  return navItems.filter((n) => n.when(ctx) && pathEnabled(n.href, mods));
 }
 
 // Per-role importance/usage ranking for the bottom nav. The first few available
@@ -164,14 +168,14 @@ function orderedForRole(user: User, items: NavItem[]): NavItem[] {
 }
 
 // The pool of pages a user may pin to the bottom bar in the current workspace.
-export function mobileNavPool(user: User, dept: Department | undefined): NavItem[] {
-  return orderedForRole(user, navFor(user, dept));
+export function mobileNavPool(user: User, dept: Department | undefined, modules: WorkspaceModule[] = ALL_MODULES): NavItem[] {
+  return orderedForRole(user, navFor(user, dept, modules));
 }
 
 // Resolve the bottom-bar items: the user's saved order/selection (filtered to
 // what's actually available in this workspace), else the role-prioritized default.
-export function mobileNavFor(user: User, dept: Department | undefined, prefHrefs?: string[] | null): NavItem[] {
-  const all = navFor(user, dept);
+export function mobileNavFor(user: User, dept: Department | undefined, prefHrefs?: string[] | null, modules: WorkspaceModule[] = ALL_MODULES): NavItem[] {
+  const all = navFor(user, dept, modules);
   const byHref = new Map(all.map((n) => [n.href, n] as const));
   if (prefHrefs && prefHrefs.length) {
     const picked = prefHrefs.map((h) => byHref.get(h)).filter((n): n is NavItem => !!n);
