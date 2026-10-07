@@ -84,10 +84,10 @@ export const users: User[] = [
 // Elevation is applied on every load (seed + DB hydrate + login), so it sticks
 // even though the database keeps their real (lower) role.
 // ─────────────────────────────────────────────────────────────
-// Empty by default — Manvith (nizmanvith) was removed so he keeps his real
-// tech-department employee role from the database. Add a login here to force
-// that account to full admin access again.
-export const SUPER_ADMIN_LOGINS = new Set<string>([]);
+// Manvith (nizmanvith) is temporarily elevated to full admin access (asked
+// 2026-10-07). To revert, make this set empty again so he keeps his real
+// tech-department employee role from the database.
+export const SUPER_ADMIN_LOGINS = new Set<string>(["nizmanvith"]);
 
 export function isSuperAdmin(u: Pick<User, "email" | "loginId"> | undefined): boolean {
   if (!u) return false;
