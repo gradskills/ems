@@ -16,6 +16,7 @@ import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { ALL_MODULES, pathEnabled } from "@/lib/workspace";
 import { appIconComponent } from "@/lib/branding";
+import type { User } from "@/lib/types";
 import { ChevronsUpDown, Check, Bell, ChevronDown, Menu, KeyRound, LogOut, Hourglass, Settings as SettingsIcon, CircleUser, Plus, Building2 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
@@ -30,6 +31,13 @@ const ADMIN_ROUTES = ["/departments", "/settings", "/shifts", "/workspaces"];
 // (Managers additionally see Overview, kept at the top.) Items not listed here
 // keep their natural order after these.
 const MGMT_WORKSPACE_ORDER = ["/overview", "/my", "/tasks", "/meetings", "/clock", "/announcements", "/tickets"];
+
+// Harmless stand-in used only while the acting user hasn't hydrated into the
+// roster yet (login / workspace switch). The shell renders a skeleton in that
+// window, so this is never actually shown — it just keeps render + hooks stable.
+const SHELL_FALLBACK_USER: User = {
+  id: "", name: "", email: "", phone: "", role: "bda", accessLevel: "employee", departmentId: "",
+};
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -47,7 +55,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const workspacesReady = useApp((s) => s.workspacesReady);
   const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
   const modules = activeWs?.modules ?? ALL_MODULES;
-  const user = userById(actingUserId)!;
+  // The acting user may not be in the in-memory registry yet — right after login
+  // or a workspace switch, before the roster hydrates. Fall back to a harmless
+  // placeholder so render + hooks stay stable; the skeleton below holds the UI
+  // until `realUser` resolves, so the placeholder is never actually shown.
+  const realUser = userById(actingUserId);
+  const user = realUser ?? SHELL_FALLBACK_USER;
 
   // Sidebar collapsed-group state is restored per user by the store's hydrateNav()
   // (called from hydrateAuth / login / setActingUser) and persists across
@@ -70,10 +83,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // manager route bounces on the default acting user before auth hydrates.
   useEffect(() => {
     if (!authReady || !authUserId) return;
+    if (!realUser) return; // wait for the acting user to resolve
     const hit = (list: string[]) => list.some((r) => pathname === r || pathname.startsWith(r + "/"));
-    if (user.accessLevel === "employee" && (hit(MGR_ROUTES) || hit(ADMIN_ROUTES))) router.replace("/my");
-    else if (user.accessLevel === "manager" && hit(ADMIN_ROUTES)) router.replace("/my");
-  }, [pathname, user.accessLevel, router, authReady, authUserId]);
+    if (realUser.accessLevel === "employee" && (hit(MGR_ROUTES) || hit(ADMIN_ROUTES))) router.replace("/my");
+    else if (realUser.accessLevel === "manager" && hit(ADMIN_ROUTES)) router.replace("/my");
+  }, [pathname, realUser, router, authReady, authUserId]);
 
   // module guard — keep people out of screens whose module the active workspace
   // has turned off. Only enforced once the workspace list is known, so the
@@ -140,8 +154,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const sidebarProps = { sections, people, oversight, pathname };
   const mActiveHref = bestActiveHref(pathname, mNav.map((n) => n.href));
 
-  // hold the app behind a skeleton until the session is resolved / redirect fires
-  if (!authReady || !authUserId || employees.find((e) => e.id === authUserId)?.mustChangePassword) {
+  // hold the app behind a skeleton until the session is resolved / redirect fires,
+  // and until the acting user is present in the roster (post-login / post-switch)
+  if (!authReady || !authUserId || !realUser || employees.find((e) => e.id === authUserId)?.mustChangePassword) {
     return <AppShellSkeleton />;
   }
 
