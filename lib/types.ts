@@ -586,15 +586,65 @@ export interface Payslip {
   net: number;
   generatedAt?: string;
   paidAt?: string;
+  // The payroll type this payslip was generated from (for display / audit).
+  payrollTypeId?: string;
+}
+
+// ── Payroll types — named salary templates ─────────────────────
+// A payroll type is a reusable template: which earning/deduction lines a
+// payslip carries and how each is computed. Employees are assigned to a type;
+// generating payroll for them builds a payslip from the assigned type plus that
+// month's attendance. Admins define these at runtime.
+//   • fixed         — a flat ₹ amount (works even when no per-employee salary is set)
+//   • percent_base  — a % of the employee's monthly base (salary components, or CTC/12)
+//   • percent_gross — a % of that payslip's gross earnings (deductions only, e.g. TDS)
+export type PayItemKind = "fixed" | "percent_base" | "percent_gross";
+
+export interface PayItemDef {
+  id: string;
+  label: string;
+  kind: PayItemKind;
+  value: number; // ₹ when fixed, otherwise a percentage (12 = 12%)
+}
+
+export interface PayrollType {
+  id: string;
+  name: string;
+  description?: string;
+  color: "slate" | "primary" | "success" | "warning" | "danger" | "info" | "purple";
+  earnings: PayItemDef[];
+  deductions: PayItemDef[];
+  prorateByAttendance: boolean; // loss-of-pay days reduce the payout
+  memberIds: string[];          // employees assigned to this payroll type
+  system?: boolean;             // seeded template
 }
 
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "blocked";
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
+// A checklist item nested under a task (Notion-style sub-tasks).
+export interface TaskSubtask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
+// A comment or activity entry on a task's discussion thread.
+export interface TaskComment {
+  id: string;
+  authorId: string;
+  body: string;
+  at: string;
+  // system entries (created / status changed …) render differently from people's comments
+  system?: boolean;
+}
+
 export interface Task {
   id: string;
   title: string;
   description?: string;
+  // Optional emoji shown beside the title (Notion-style page icon).
+  icon?: string;
   // Primary assignee — kept for back-compat and single-person displays.
   // The canonical list is `assigneeIds` (falls back to `[assigneeId]`).
   assigneeId: string;
@@ -611,10 +661,18 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   createdAt: string;
+  updatedAt?: string;
+  // Scheduling window — `startAt` powers the calendar/timeline, `dueAt` the deadline.
+  startAt?: string;
   dueAt?: string;
   tags?: string[];
+  // Nested checklist items + their own discussion thread.
+  subtasks?: TaskSubtask[];
+  comments?: TaskComment[];
   estimateHrs?: number;
   loggedHrs?: number;
+  // Manual position within its board group (lower = higher). Undefined sorts last.
+  orderIndex?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════

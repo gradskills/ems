@@ -25,7 +25,11 @@ import type {
   LeaveRequest,
   LeaveType,
   Payslip,
+  PayrollType,
+  PayItemDef,
   Task,
+  TaskSubtask,
+  TaskComment,
   TaskStatus,
   TaskPriority,
   Project,
@@ -76,6 +80,7 @@ import { departments as seedDepartments, companySettings as seedCompany, approva
 import { attendance as seedAttendance, leaveRequests as seedLeaves, payslips as seedPayslips } from "@/lib/seed/hr";
 import { readCompanyDays, writeCompanyDays, writePersonalExtra, applyPersonalExtras, readShifts, writeShifts, writeShiftAssignment, pruneShiftAssignments, applyShiftAssignments } from "@/lib/localExtras";
 import { DEFAULT_SHIFTS } from "@/lib/shifts";
+import { DEFAULT_PAYROLL_TYPES, buildPayslipFromType, payrollTypeForUser } from "@/lib/payroll";
 import { tasks as seedTasks } from "@/lib/seed/tasks";
 import { projects as seedProjects } from "@/lib/seed/projects";
 import { mediaClients as seedClients, campaigns as seedCampaigns, contentPosts as seedContent } from "@/lib/seed/media";
@@ -95,7 +100,7 @@ import {
 import { DEFAULT_WORKSPACE_ID, ALL_MODULES } from "@/lib/workspace";
 import type { Workspace, WorkspaceModule } from "@/lib/types";
 import { localDateISO } from "@/lib/utils";
-import { buildPayslip } from "@/lib/ems";
+import { buildPayslip, taskAssignees } from "@/lib/ems";
 
 export type SendChannel = "email" | "whatsapp";
 export interface NewLeadInput {
@@ -223,6 +228,7 @@ interface AppState {
   approvalRules: ApprovalRules;
   companyDays: CompanyDay[];
   shifts: Shift[];
+  payrollTypes: PayrollType[];
   birthdayGreetedDate: string; // YYYY-MM-DD the auto birthday greetings last ran
 
   // ── actions ──
@@ -296,6 +302,18 @@ interface AppState {
   moveTask: (id: string, status: TaskStatus) => void;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
+  // ── Notion-style task editing ──
+  // Drag reorder on the board: apply `patch` to the dragged card (status/priority/
+  // assignee/project of the target group) and renumber the whole target column.
+  reorderBoard: (draggedId: string, patch: Partial<Task> | null, orderedIds: string[]) => void;
+  duplicateTask: (id: string) => string;
+  addSubtask: (taskId: string, title: string) => void;
+  toggleSubtask: (taskId: string, subId: string) => void;
+  renameSubtask: (taskId: string, subId: string, title: string) => void;
+  deleteSubtask: (taskId: string, subId: string) => void;
+  setTaskTags: (taskId: string, tags: string[]) => void;
+  addTaskComment: (taskId: string, body: string) => void;
+  deleteTaskComment: (taskId: string, commentId: string) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (userId: string) => void;
   // generic in-app notification (used by clock-in/out reminders, etc.)
@@ -317,9 +335,17 @@ interface AppState {
   deleteTicket: (id: string) => void;
   updatePayslip: (id: string, patch: Partial<Payslip>) => void;
   deletePayslip: (id: string) => void;
-  // Generate draft payslips for a month from salary structures + attendance.
-  // Skips anyone who already has a payslip for that month. Returns the count made.
+  // Generate draft payslips for a month from each employee's payroll type (or
+  // their salary structure when unassigned) + attendance. Skips anyone who
+  // already has a payslip for that month. Returns the count made.
   generatePayroll: (month: string, userIds: string[]) => number;
+  // ── payroll types (admin-managed templates; persisted browser-local) ──
+  createPayrollType: (input: NewPayrollTypeInput) => string;
+  updatePayrollType: (id: string, patch: Partial<Omit<PayrollType, "id">>) => void;
+  deletePayrollType: (id: string) => { ok: boolean; error?: string };
+  // Move an employee into one payroll type (or clear with undefined); a person
+  // belongs to at most one type, so this removes them from any others.
+  assignPayrollType: (userId: string, typeId: string | undefined) => void;
   saveCompany: (patch: Partial<CompanySettings>) => void;
   setApprovalRules: (patch: Partial<ApprovalRules>) => void;
   // ── QIMS: audit reports + quotation review + customer portal ──
@@ -426,6 +452,15 @@ export interface NewLeaveInput {
   days: number;
   reason: string;
 }
+export interface NewPayrollTypeInput {
+  name: string;
+  description?: string;
+  color: PayrollType["color"];
+  earnings: PayItemDef[];
+  deductions: PayItemDef[];
+  prorateByAttendance: boolean;
+  memberIds?: string[];
+}
 export interface NewTaskInput {
   title: string;
   description?: string;
@@ -436,8 +471,14 @@ export interface NewTaskInput {
   departmentId: string;
   priority: Task["priority"];
   dueAt?: string;
+  startAt?: string;
   projectId?: string;
   status?: TaskStatus;
+  // Notion-style extras set at creation time.
+  icon?: string;
+  tags?: string[];
+  subtasks?: TaskSubtask[];
+  estimateHrs?: number;
 }
 
 export interface NewProjectInput {
@@ -905,6 +946,7 @@ export const useApp = create<AppState>((rawSet, get) => {
   approvalRules: seedApprovalRules,
   companyDays: [],
   shifts: DEFAULT_SHIFTS,
+  payrollTypes: DEFAULT_PAYROLL_TYPES,
   birthdayGreetedDate: "",
 
   moveStage: (leadId, to, reason) =>
@@ -1810,6 +1852,7 @@ export const useApp = create<AppState>((rawSet, get) => {
         id,
         title: input.title,
         description: input.description,
+        icon: input.icon,
         assigneeId: assigneeIds[0],
         assigneeIds,
         editorIds,
@@ -1819,7 +1862,12 @@ export const useApp = create<AppState>((rawSet, get) => {
         status: input.status ?? "todo",
         priority: input.priority,
         createdAt,
+        updatedAt: createdAt,
+        startAt: input.startAt,
         dueAt: input.dueAt,
+        tags: input.tags?.length ? input.tags : undefined,
+        subtasks: input.subtasks?.length ? input.subtasks : undefined,
+        estimateHrs: input.estimateHrs,
         loggedHrs: 0,
       };
       // notify every assignee except whoever created the task
@@ -1982,7 +2030,7 @@ export const useApp = create<AppState>((rawSet, get) => {
     set((s) => {
       const t = s.tasks.find((x) => x.id === id);
       if (!t) return s;
-      const next: Task = { ...t, ...patch };
+      const next: Task = { ...t, ...patch, updatedAt: new Date().toISOString() };
       // keep the multi-assignee list, the primary id and the editor grants coherent
       if (patch.assigneeIds) {
         next.assigneeIds = Array.from(new Set(patch.assigneeIds));
@@ -2008,6 +2056,128 @@ export const useApp = create<AppState>((rawSet, get) => {
       const audit = t ? [pushAudit(s, { action: "delete", entity: "task", entityId: id, entityLabel: t.title }), ...s.audit] : s.audit;
       return { tasks: s.tasks.filter((x) => x.id !== id), audit };
     }),
+
+  // Drag reorder: `patch` moves the dragged card into the target group (its
+  // status/priority/assignee/project), and every id in `orderedIds` gets a fresh
+  // orderIndex so the manual sort reflects the new column order — all in one pass.
+  reorderBoard: (draggedId, patch, orderedIds) =>
+    set((s) => {
+      const pos = new Map(orderedIds.map((id, i) => [id, i * 10]));
+      const now = new Date().toISOString();
+      const tasks = s.tasks.map((t) => {
+        const inOrder = pos.has(t.id);
+        const isDragged = t.id === draggedId;
+        if (!inOrder && !isDragged) return t;
+        const next: Task = { ...t };
+        if (isDragged && patch) {
+          Object.assign(next, patch);
+          if (patch.assigneeIds) next.assigneeId = patch.assigneeIds[0] ?? next.assigneeId;
+          next.updatedAt = now;
+        }
+        if (inOrder) next.orderIndex = pos.get(t.id)!;
+        return next;
+      });
+      return { tasks };
+    }),
+
+  duplicateTask: (id) => {
+    const copyId = nid("T");
+    set((s) => {
+      const t = s.tasks.find((x) => x.id === id);
+      if (!t) return s;
+      const now = new Date().toISOString();
+      const copy: Task = {
+        ...t,
+        id: copyId,
+        title: `${t.title} (copy)`,
+        createdById: s.actingUserId,
+        createdAt: now,
+        updatedAt: now,
+        orderIndex: undefined,
+        comments: undefined,
+        // reset the checklist's done state on a duplicate
+        subtasks: t.subtasks?.map((st) => ({ ...st, id: nid("ST"), done: false })),
+      };
+      const audit = pushAudit(s, { action: "create", entity: "task", entityId: copyId, entityLabel: copy.title });
+      return { tasks: [copy, ...s.tasks], audit: [audit, ...s.audit] };
+    });
+    return copyId;
+  },
+
+  addSubtask: (taskId, title) =>
+    set((s) => {
+      const trimmed = title.trim();
+      if (!trimmed) return s;
+      const sub: TaskSubtask = { id: nid("ST"), title: trimmed, done: false };
+      return {
+        tasks: s.tasks.map((t) =>
+          t.id === taskId ? { ...t, subtasks: [...(t.subtasks ?? []), sub], updatedAt: new Date().toISOString() } : t,
+        ),
+      };
+    }),
+
+  toggleSubtask: (taskId, subId) =>
+    set((s) => ({
+      tasks: s.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, subtasks: (t.subtasks ?? []).map((st) => (st.id === subId ? { ...st, done: !st.done } : st)), updatedAt: new Date().toISOString() }
+          : t,
+      ),
+    })),
+
+  renameSubtask: (taskId, subId, title) =>
+    set((s) => ({
+      tasks: s.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, subtasks: (t.subtasks ?? []).map((st) => (st.id === subId ? { ...st, title } : st)), updatedAt: new Date().toISOString() }
+          : t,
+      ),
+    })),
+
+  deleteSubtask: (taskId, subId) =>
+    set((s) => ({
+      tasks: s.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, subtasks: (t.subtasks ?? []).filter((st) => st.id !== subId), updatedAt: new Date().toISOString() }
+          : t,
+      ),
+    })),
+
+  setTaskTags: (taskId, tags) =>
+    set((s) => {
+      // keep an explicit (possibly empty) array so clearing all tags persists as
+      // `[]` — `undefined` would be dropped by the writer and leave stale rows.
+      const clean = Array.from(new Set(tags.map((x) => x.trim()).filter(Boolean)));
+      return {
+        tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, tags: clean, updatedAt: new Date().toISOString() } : t)),
+      };
+    }),
+
+  addTaskComment: (taskId, body) =>
+    set((s) => {
+      const trimmed = body.trim();
+      if (!trimmed) return s;
+      const t = s.tasks.find((x) => x.id === taskId);
+      if (!t) return s;
+      const at = new Date().toISOString();
+      const comment: TaskComment = { id: nid("TC"), authorId: s.actingUserId, body: trimmed, at };
+      // ping the other assignees that a comment landed
+      const recipients = taskAssignees(t).filter((uid) => uid !== s.actingUserId);
+      const notifs: AppNotification[] = recipients.map((uid) => ({
+        id: nid("N"), userId: uid, kind: "task" as const, title: "New comment on a task", body: `${userById(s.actingUserId)?.name ?? "Someone"}: ${trimmed.slice(0, 80)}`, at, read: false, href: "/tasks",
+      }));
+      return {
+        tasks: s.tasks.map((x) => (x.id === taskId ? { ...x, comments: [...(x.comments ?? []), comment], updatedAt: at } : x)),
+        notifications: [...notifs, ...s.notifications],
+      };
+    }),
+
+  deleteTaskComment: (taskId, commentId) =>
+    set((s) => ({
+      tasks: s.tasks.map((t) =>
+        t.id === taskId ? { ...t, comments: (t.comments ?? []).filter((c) => c.id !== commentId) } : t,
+      ),
+    })),
 
   markNotificationRead: (id) =>
     set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) })),
@@ -2169,7 +2339,10 @@ export const useApp = create<AppState>((rawSet, get) => {
       if (!targets.length) return s;
       const fresh: Payslip[] = targets.map((emp) => {
         const monthAtt = s.attendance.filter((a) => a.userId === emp.id && a.date.slice(0, 7) === month);
-        return buildPayslip(emp, month, monthAtt);
+        // Build from the employee's assigned payroll type; fall back to the
+        // legacy salary-structure formula when they aren't assigned to one.
+        const type = payrollTypeForUser(emp.id, s.payrollTypes);
+        return type ? buildPayslipFromType(emp, month, monthAtt, type) : buildPayslip(emp, month, monthAtt);
       });
       made = fresh.length;
       const audit = pushAudit(s, { action: "create", entity: "payroll", entityId: month, entityLabel: `Payroll ${month}`, after: `${fresh.length} payslip(s) generated` });
@@ -2177,6 +2350,68 @@ export const useApp = create<AppState>((rawSet, get) => {
     });
     return made;
   },
+
+  createPayrollType: (input) => {
+    const id = nid("ptype");
+    set((s) => {
+      const members = Array.from(new Set(input.memberIds ?? []));
+      const type: PayrollType = {
+        id,
+        name: input.name.trim() || "Untitled type",
+        description: input.description?.trim() || undefined,
+        color: input.color,
+        earnings: input.earnings,
+        deductions: input.deductions,
+        prorateByAttendance: input.prorateByAttendance,
+        memberIds: members,
+      };
+      // a person belongs to one type — drop these members from any existing type
+      const others = s.payrollTypes.map((t) => ({ ...t, memberIds: t.memberIds.filter((m) => !members.includes(m)) }));
+      const payrollTypes = [...others, type];
+      const audit = pushAudit(s, { action: "create", entity: "payroll_type", entityId: id, entityLabel: type.name });
+      return { payrollTypes, audit: [audit, ...s.audit] };
+    });
+    return id;
+  },
+
+  updatePayrollType: (id, patch) =>
+    set((s) => {
+      const existing = s.payrollTypes.find((t) => t.id === id);
+      if (!existing) return s;
+      // members moving into this type must leave any other type
+      const incoming = patch.memberIds ? Array.from(new Set(patch.memberIds)) : undefined;
+      const payrollTypes = s.payrollTypes.map((t) => {
+        if (t.id === id) return { ...t, ...patch, memberIds: incoming ?? t.memberIds };
+        if (incoming) return { ...t, memberIds: t.memberIds.filter((m) => !incoming.includes(m)) };
+        return t;
+      });
+      const audit = pushAudit(s, { action: "update", entity: "payroll_type", entityId: id, entityLabel: patch.name ?? existing.name });
+      return { payrollTypes, audit: [audit, ...s.audit] };
+    }),
+
+  deletePayrollType: (id) => {
+    const s = get();
+    const type = s.payrollTypes.find((t) => t.id === id);
+    if (!type) return { ok: false, error: "Payroll type not found." };
+    set((st) => {
+      const payrollTypes = st.payrollTypes.filter((t) => t.id !== id);
+      const audit = pushAudit(st, { action: "delete", entity: "payroll_type", entityId: id, entityLabel: type.name });
+      return { payrollTypes, audit: [audit, ...st.audit] };
+    });
+    return { ok: true };
+  },
+
+  assignPayrollType: (userId, typeId) =>
+    set((s) => {
+      const payrollTypes = s.payrollTypes.map((t) => {
+        const without = t.memberIds.filter((m) => m !== userId);
+        return t.id === typeId ? { ...t, memberIds: [...without, userId] } : { ...t, memberIds: without };
+      });
+      const emp = s.employees.find((e) => e.id === userId);
+      const typeName = typeId ? s.payrollTypes.find((t) => t.id === typeId)?.name ?? typeId : "None";
+      const audit = pushAudit(s, { action: "update", entity: "employee", entityId: userId, entityLabel: emp?.name ?? userId, field: "payroll_type", after: typeName });
+      return { payrollTypes, audit: [audit, ...s.audit] };
+    }),
 
   saveCompany: (patch) => set((s) => ({ company: { ...s.company, ...patch } })),
   setApprovalRules: (patch) => set((s) => ({ approvalRules: { ...s.approvalRules, ...patch } })),

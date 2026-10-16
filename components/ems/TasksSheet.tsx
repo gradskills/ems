@@ -4,9 +4,10 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Avatar, Button, selectCellCls } from "@/components/ui/primitives";
+import { TagChips } from "@/components/ems/tasks/TagInput";
 import { taskColumns, taskStatusLabel, taskAssignees } from "@/lib/ems";
 import { cn, isPast } from "@/lib/utils";
-import { Pencil, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { Maximize2, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 import type { Task, TaskStatus, TaskPriority, User } from "@/lib/types";
 
 type SortKey = "title" | "assignee" | "status" | "priority" | "dueAt";
@@ -16,10 +17,10 @@ interface TasksSheetProps {
   tasks: Task[];
   me: User;
   canEdit: (t: Task) => boolean;
-  onEdit: (t: Task) => void;
+  onOpen: (t: Task) => void;
 }
 
-export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
+export function TasksSheet({ tasks, me, canEdit, onOpen }: TasksSheetProps) {
   const projects = useApp((s) => s.projects);
   const moveTask = useApp((s) => s.moveTask);
   const updateTask = useApp((s) => s.updateTask);
@@ -86,6 +87,7 @@ export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
               {sortHeader("Priority", "priority", "w-32")}
               {sortHeader("Due", "dueAt", "w-36")}
               <th className="w-40 px-3 py-2 font-semibold">Project</th>
+              <th className="w-40 px-3 py-2 font-semibold">Tags</th>
               <th className="w-20 px-3 py-2 text-right font-semibold">Actions</th>
             </tr>
           </thead>
@@ -128,7 +130,7 @@ export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
                   <td className="px-3 py-1.5">
                     <button
                       type="button"
-                      onClick={() => editable && onEdit(t)}
+                      onClick={() => onOpen(t)}
                       className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left", editable ? "hover:bg-[var(--surface-2)]" : "cursor-default")}
                       title={assigneeList.map((id) => userById(id)?.name ?? id).join(", ")}
                     >
@@ -180,10 +182,15 @@ export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
                     {projects.find((p) => p.id === t.projectId)?.name ?? "—"}
                   </td>
 
+                  {/* tags */}
+                  <td className="px-3 py-1.5">
+                    {t.tags && t.tags.length > 0 ? <TagChips tags={t.tags} /> : <span className="text-xs text-[var(--muted-2)]">—</span>}
+                  </td>
+
                   {/* actions */}
                   <td className="px-3 py-1.5">
-                    <div className={cn("flex items-center justify-end gap-1 transition-opacity", editable ? "opacity-0 group-hover:opacity-100 focus-within:opacity-100" : "opacity-30")}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(t)} disabled={!editable} aria-label="Open editor"><Pencil size={13} /></Button>
+                    <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onOpen(t)} aria-label="Open task"><Maximize2 size={13} /></Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteTask(t.id)} disabled={!editable} aria-label="Delete"><Trash2 size={13} /></Button>
                     </div>
                   </td>
@@ -193,7 +200,7 @@ export function TasksSheet({ tasks, me, canEdit, onEdit }: TasksSheetProps) {
 
             {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-10 text-center text-sm text-[var(--muted-2)]">No tasks match the current filters.</td>
+                <td colSpan={9} className="py-10 text-center text-sm text-[var(--muted-2)]">No tasks match the current filters.</td>
               </tr>
             )}
           </tbody>

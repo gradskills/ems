@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { Modal, Field, Input } from "@/components/ui/modal";
-import { Button, Avatar } from "@/components/ui/primitives";
+import { Button, Avatar, Badge } from "@/components/ui/primitives";
 import { visibleEmployees, monthLabel } from "@/lib/ems";
+import { payrollTypeForUser } from "@/lib/payroll";
 import { cn } from "@/lib/utils";
 import { Check } from "lucide-react";
 import type { User } from "@/lib/types";
@@ -24,6 +25,7 @@ export function GeneratePayrollModal({
 }) {
   const employees = useApp((s) => s.employees);
   const payslips = useApp((s) => s.payslips);
+  const payrollTypes = useApp((s) => s.payrollTypes);
   const generatePayroll = useApp((s) => s.generatePayroll);
 
   const roster = useMemo(
@@ -61,7 +63,7 @@ export function GeneratePayrollModal({
     <Modal open={open} onClose={onClose} title="Generate payroll" size="md"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={run} disabled={!toMake}>Generate {toMake || ""} payslip{toMake === 1 ? "" : "s"}</Button></>}>
       <div className="space-y-4">
-        <Field label="Pay month" hint="Draft payslips are computed from each person's salary structure and that month's attendance (absences reduce pay).">
+        <Field label="Pay month" hint="Draft payslips are built from each person's assigned payroll type (or their salary structure when unassigned) and that month's attendance.">
           <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
         </Field>
 
@@ -80,6 +82,10 @@ export function GeneratePayrollModal({
             {roster.map((e) => {
               const done = already.has(e.id);
               const checked = selected.has(e.id) && !done;
+              const ptype = payrollTypeForUser(e.id, payrollTypes);
+              // Only flag "no pay set" when there's neither a type nor a salary to
+              // compute from — a fixed-amount type pays even without a salary.
+              const noPay = !ptype && !e.salary && !e.ctcAnnual;
               return (
                 <button
                   key={e.id}
@@ -96,8 +102,9 @@ export function GeneratePayrollModal({
                   </span>
                   <Avatar name={e.name} size={22} src={e.avatarUrl} />
                   <span className="flex-1 truncate">{e.name}</span>
+                  {ptype ? <Badge color={ptype.color}>{ptype.name}</Badge> : <span className="text-[10px] uppercase tracking-wide text-[var(--muted-2)]">Default</span>}
                   {done && <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-2)]">Done</span>}
-                  {!e.salary && !e.ctcAnnual && !done && <span className="text-[10px] text-[var(--warning)]">no salary</span>}
+                  {noPay && !done && <span className="text-[10px] text-[var(--warning)]">no pay set</span>}
                 </button>
               );
             })}

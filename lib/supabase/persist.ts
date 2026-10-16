@@ -38,7 +38,7 @@ const ARRAY_SLICES: Record<string, string> = {
   campaigns: "campaigns", content: "content_posts", tickets: "tickets", notifications: "notifications",
   announcements: "announcements", auditReports: "audit_reports", briefs: "briefs", milestones: "milestones",
   payments: "payments", forms: "forms", formResponses: "form_responses", meetings: "meetings",
-  departments: "departments", credentialEmails: "credential_emails",
+  departments: "departments", credentialEmails: "credential_emails", payrollTypes: "payroll_types",
 };
 
 type AnyRow = { id: string } & Record<string, unknown>;

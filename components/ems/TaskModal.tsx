@@ -5,24 +5,31 @@ import { useApp } from "@/lib/store";
 import { userById } from "@/lib/seed/users";
 import { Modal, Field, Input, Textarea } from "@/components/ui/modal";
 import { Button, Avatar } from "@/components/ui/primitives";
+import { Popover } from "@/components/ui/popover";
+import { TagInput } from "@/components/ems/tasks/TagInput";
 import { visibleEmployees, taskColumns, taskStatusLabel, taskAssignees } from "@/lib/ems";
+import { allTags } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
-import { Check, Pencil, Lock } from "lucide-react";
+import { Check, Pencil, Lock, Smile } from "lucide-react";
 import type { Task, TaskPriority, TaskStatus } from "@/lib/types";
 
 const selectCls = "h-10 w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]";
+const MODAL_EMOJIS = ["📝", "✅", "🚀", "🐛", "🔥", "⭐", "📌", "💡", "🎯", "🧩", "🛠️", "🎨"];
 
 export function TaskModal({ open, onClose, task, defaultStatus }: { open: boolean; onClose: () => void; task?: Task; defaultStatus?: TaskStatus }) {
   const actingUserId = useApp((s) => s.actingUserId);
   const employees = useApp((s) => s.employees);
   const projects = useApp((s) => s.projects);
+  const tasks = useApp((s) => s.tasks);
   const createTask = useApp((s) => s.createTask);
   const updateTask = useApp((s) => s.updateTask);
   const me = userById(actingUserId)!;
   const canAssignOthers = me.accessLevel !== "employee";
   const assignable = canAssignOthers ? visibleEmployees(me, employees) : [me];
+  const tagSuggestions = allTags(tasks);
 
   const [title, setTitle] = useState(task?.title ?? "");
+  const [icon, setIcon] = useState<string | undefined>(task?.icon);
   const [description, setDescription] = useState(task?.description ?? "");
   const [assigneeIds, setAssigneeIds] = useState<string[]>(task ? taskAssignees(task) : [me.id]);
   const [editorIds, setEditorIds] = useState<string[]>(task?.editorIds ?? []);
@@ -30,6 +37,8 @@ export function TaskModal({ open, onClose, task, defaultStatus }: { open: boolea
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? defaultStatus ?? "todo");
   const [due, setDue] = useState(task?.dueAt ? task.dueAt.slice(0, 10) : "");
   const [projectId, setProjectId] = useState(task?.projectId ?? "");
+  const [tags, setTags] = useState<string[]>(task?.tags ?? []);
+  const [estimate, setEstimate] = useState(task?.estimateHrs != null ? String(task.estimateHrs) : "");
 
   const valid = title.trim().length > 0 && assigneeIds.length > 0;
 
@@ -51,13 +60,15 @@ export function TaskModal({ open, onClose, task, defaultStatus }: { open: boolea
     const primary = userById(ids[0]) ?? me;
     const dueAt = due ? new Date(due).toISOString() : undefined;
     const editors = editorIds.filter((x) => ids.includes(x));
+    const estimateHrs = estimate.trim() ? Number(estimate) : undefined;
+    const cleanTags = Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
     if (task) {
-      updateTask(task.id, { title, description, assigneeIds: ids, editorIds: editors, priority, status, dueAt, projectId: projectId || undefined });
+      updateTask(task.id, { title, icon, description, assigneeIds: ids, editorIds: editors, priority, status, dueAt, projectId: projectId || undefined, tags: cleanTags, estimateHrs });
     } else {
-      createTask({ title, description, assigneeIds: ids, editorIds: editors, departmentId: primary.departmentId, priority, status, dueAt, projectId: projectId || undefined });
+      createTask({ title, icon, description, assigneeIds: ids, editorIds: editors, departmentId: primary.departmentId, priority, status, dueAt, projectId: projectId || undefined, tags: cleanTags, estimateHrs });
     }
     onClose();
-    if (!task) { setTitle(""); setDescription(""); setDue(""); setProjectId(""); setStatus(defaultStatus ?? "todo"); setAssigneeIds([me.id]); setEditorIds([]); }
+    if (!task) { setTitle(""); setIcon(undefined); setDescription(""); setDue(""); setProjectId(""); setStatus(defaultStatus ?? "todo"); setAssigneeIds([me.id]); setEditorIds([]); setTags([]); setEstimate(""); }
   }
 
   // The creator always keeps edit rights, so they're shown as a locked "Owner".
@@ -69,8 +80,30 @@ export function TaskModal({ open, onClose, task, defaultStatus }: { open: boolea
     <Modal open={open} onClose={onClose} title={task ? "Edit task" : "New task"} size="md"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={!valid}>{task ? "Save changes" : "Create task"}</Button></>}>
       <div className="space-y-4">
-        <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs doing?" /></Field>
+        <Field label="Title">
+          <div className="flex items-center gap-2">
+            <Popover
+              width={224}
+              trigger={({ toggle }) => (
+                <button type="button" onClick={toggle} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] text-xl hover:bg-[var(--surface-2)]" aria-label="Pick icon">
+                  {icon || <Smile size={18} className="text-[var(--muted-2)]" />}
+                </button>
+              )}
+            >
+              {({ close }) => (
+                <div className="grid grid-cols-6 gap-1">
+                  {MODAL_EMOJIS.map((e) => (
+                    <button key={e} type="button" onClick={() => { setIcon(e); close(); }} className="flex h-8 w-8 items-center justify-center rounded-md text-xl hover:bg-[var(--surface-2)]">{e}</button>
+                  ))}
+                  <button type="button" onClick={() => { setIcon(undefined); close(); }} className="col-span-6 mt-1 rounded-md px-2 py-1 text-xs text-[var(--muted)] hover:bg-[var(--surface-2)]">Remove icon</button>
+                </div>
+              )}
+            </Popover>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs doing?" />
+          </div>
+        </Field>
         <Field label="Description"><Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional details…" /></Field>
+        <Field label="Tags"><TagInput tags={tags} suggestions={tagSuggestions} onChange={setTags} /></Field>
 
         <Field label={`Assignees${assigneeIds.length ? ` · ${assigneeIds.length}` : ""}`}>
           {canAssignOthers ? (
@@ -138,6 +171,7 @@ export function TaskModal({ open, onClose, task, defaultStatus }: { open: boolea
             </select>
           </Field>
           <Field label="Due date"><Input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+          <Field label="Estimate (hrs)"><Input type="number" min={0} step={0.5} value={estimate} onChange={(e) => setEstimate(e.target.value)} placeholder="0" /></Field>
           <Field label="Project (optional)">
             <select className={selectCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">— None —</option>

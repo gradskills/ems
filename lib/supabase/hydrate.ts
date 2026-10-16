@@ -15,10 +15,11 @@
 // separately by `hydrateAttendancePhotos` after the app is already usable.
 // ─────────────────────────────────────────────────────────────
 import { getSupabase } from "@/lib/supabase/client";
-import { userToApp, attendanceToApp, leaveToApp, genericToApp, workspaceToApp } from "@/lib/supabase/map";
+import { userToApp, attendanceToApp, leaveToApp, genericToApp, genericToRow, workspaceToApp } from "@/lib/supabase/map";
 import { setUsers, elevate } from "@/lib/seed/users";
 import type { User, Workspace } from "@/lib/types";
 import { departments as seedDepartments, companySettings as seedCompany, approvalRules as seedApprovalRules } from "@/lib/seed/org";
+import { DEFAULT_PAYROLL_TYPES } from "@/lib/payroll";
 import { DEFAULT_WORKSPACE_ID } from "@/lib/workspace";
 
 // store slice → table, read with the generic mapper (all scoped by workspace_id)
@@ -45,6 +46,7 @@ const TABLES: { slice: string; table: string }[] = [
   { slice: "forms", table: "forms" },
   { slice: "formResponses", table: "form_responses" },
   { slice: "meetings", table: "meetings" },
+  { slice: "payrollTypes", table: "payroll_types" },
 ];
 
 const USER_COLS =
@@ -152,6 +154,15 @@ export async function hydrateAll(workspaceId: string): Promise<HydratedData | nu
     out.milestones = out.milestones ?? [];
     out.payments = out.payments ?? [];
     out.credentialEmails = [];
+
+    // ── payroll types ──
+    // Seed this workspace's starter templates on first load so every device /
+    // admin shares the same set (and later deletes/assignments persist cleanly).
+    if (!(out.payrollTypes as unknown[] | undefined)?.length) {
+      const rows = DEFAULT_PAYROLL_TYPES.map((t) => ({ workspace_id: ws, ...genericToRow(t as unknown as Record<string, unknown>, "payroll_types") }));
+      void sb.from("payroll_types").upsert(rows);
+      out.payrollTypes = DEFAULT_PAYROLL_TYPES;
+    }
 
     // ── company settings + approval rules (per-workspace single-row blobs) ──
     if (coRes.data?.data) out.company = coRes.data.data;

@@ -11,14 +11,17 @@ import { visibleEmployees, payslipTotals, monthLabel } from "@/lib/ems";
 import { downloadCSV, downloadPayslip } from "@/lib/exports";
 import { GeneratePayrollModal } from "@/components/ems/GeneratePayrollModal";
 import { EditPayslipModal } from "@/components/ems/EditPayslipModal";
+import { PayrollTypesModal } from "@/components/ems/PayrollTypesModal";
+import { payrollTypeById, payrollTypeForUser } from "@/lib/payroll";
 import { inr } from "@/lib/utils";
-import { Download, Trash2, Plus, Pencil } from "lucide-react";
+import { Download, Trash2, Plus, Pencil, SlidersHorizontal } from "lucide-react";
 import type { Payslip, PayslipStatus } from "@/lib/types";
 
 export default function PayrollPage() {
   const actingUserId = useApp((s) => s.actingUserId);
   const employees = useApp((s) => s.employees);
   const payslips = useApp((s) => s.payslips);
+  const payrollTypes = useApp((s) => s.payrollTypes);
   const updatePayslip = useApp((s) => s.updatePayslip);
   const deletePayslip = useApp((s) => s.deletePayslip);
   const viewer = userById(actingUserId)!;
@@ -27,7 +30,14 @@ export default function PayrollPage() {
   const months = useMemo(() => Array.from(new Set(payslips.map((p) => p.month))).sort().reverse(), [payslips]);
   const [month, setMonth] = useState(months[0] ?? "");
   const [genOpen, setGenOpen] = useState(false);
+  const [typesOpen, setTypesOpen] = useState(false);
   const [editing, setEditing] = useState<Payslip | undefined>(undefined);
+
+  // The payroll type to badge a payslip with: the one it was generated from,
+  // falling back to the employee's current assignment for legacy payslips.
+  function typeForPayslip(p: Payslip) {
+    return payrollTypeById(payrollTypes, p.payrollTypeId) ?? payrollTypeForUser(p.userId, payrollTypes);
+  }
 
   const visibleIds = useMemo(() => new Set(visibleEmployees(viewer, employees).map((u) => u.id)), [viewer, employees]);
   const rows = payslips.filter((p) => p.month === month && visibleIds.has(p.userId));
@@ -58,6 +68,7 @@ export default function PayrollPage() {
               {months.length ? months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>) : <option value="">No payslips yet</option>}
             </select>
             <Button variant="outline" onClick={exportCSV} disabled={!rows.length} className="shrink-0"><Download size={16} /> Export</Button>
+            {isAdmin && <Button variant="outline" onClick={() => setTypesOpen(true)} className="shrink-0"><SlidersHorizontal size={16} /> Types</Button>}
             {isAdmin && <Button onClick={() => setGenOpen(true)} className="shrink-0"><Plus size={16} /> Generate</Button>}
           </div>
         }
@@ -77,11 +88,12 @@ export default function PayrollPage() {
             {isAdmin && <Button onClick={() => setGenOpen(true)}><Plus size={16} /> Generate payroll</Button>}
           </div>
         ) : (
-        <TableShell head={<><th className="px-4 py-3">Employee</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Gross</th><th className="px-4 py-3">Deductions</th><th className="px-4 py-3">Net pay</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></>}>
+        <TableShell head={<><th className="px-4 py-3">Employee</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Payroll type</th><th className="px-4 py-3">Gross</th><th className="px-4 py-3">Deductions</th><th className="px-4 py-3">Net pay</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></>}>
           {rows.map((p) => {
             const u = userById(p.userId);
             const d = u ? departmentById(u.departmentId) : undefined;
             const t = payslipTotals(p);
+            const ptype = typeForPayslip(p);
             return (
               <tr key={p.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
                 <td className="px-4 py-3">
@@ -91,6 +103,7 @@ export default function PayrollPage() {
                   </Link>
                 </td>
                 <td className="px-4 py-3"><Badge color={d?.color ?? "slate"}>{d?.name}</Badge></td>
+                <td className="px-4 py-3">{ptype ? <Badge color={ptype.color}>{ptype.name}</Badge> : <span className="text-xs text-[var(--muted-2)]">Default</span>}</td>
                 <td className="px-4 py-3">{inr(t.earnings)}</td>
                 <td className="px-4 py-3 text-[var(--muted)]">−{inr(t.deductions)}</td>
                 <td className="px-4 py-3 font-semibold">{inr(t.net)}</td>
@@ -153,6 +166,7 @@ export default function PayrollPage() {
           payslip={editing}
         />
       )}
+      {isAdmin && <PayrollTypesModal open={typesOpen} onClose={() => setTypesOpen(false)} viewer={viewer} />}
     </div>
   );
 }
